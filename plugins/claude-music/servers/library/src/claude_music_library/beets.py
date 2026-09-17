@@ -64,13 +64,20 @@ class Beets:
         info["version"] = (version.stdout.strip().splitlines() or [""])[0]
         config_path = self._beet("config", "-p")
         info["config"] = config_path.stdout.strip() or None
-        dump = self._beet("config")
         info["library_directory"] = None
         info["import"] = {}
 
+        # `beet config` prints only what the user set; `-d` prints the defaults. Defaults first, user on top.
+        for flags in (("config", "-d"), ("config",)):
+            self._read_config(self._beet(*flags).stdout, info)
+
+        return info
+
+    @staticmethod
+    def _read_config(dump: str, info: dict):
         section = None
 
-        for line in dump.stdout.splitlines():
+        for line in dump.splitlines():
             stripped = line.strip()
 
             if not line.startswith(" "):
@@ -83,8 +90,6 @@ class Beets:
 
                 if key in ("copy", "move", "write", "autotag", "incremental", "quiet_fallback"):
                     info["import"][key] = value.strip()
-
-        return info
 
     # Planning #
 
