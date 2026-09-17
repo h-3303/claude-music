@@ -166,4 +166,5 @@ claude plugin validate plugins/claude-music --strict
 
 Layout: `nicotine-plugin/mcp_bridge` (Nicotine+ plugin, stdlib only), `plugins/claude-music`
 (the Claude Code plugin: manifest, `.mcp.json`, `servers/nicotine_mcp.py`, `servers/library/`, the
-`playlist-sync` and `music-tidy` skills, agent, hook), `tests/`, `docs/ROADMAP.md`, `site/` (the static site, deployed to Vercel from that folder). Licence: GPL-3.0-or-later.
+`playlist-sync` and `music-tidy` skills, agent, hook), `tests/`, `docs/ROADMAP.md`, `site/` (the static site, deployed to
+Vercel from that folder). Licence: GPL-3.0-or-later.
