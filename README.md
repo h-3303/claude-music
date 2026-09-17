@@ -29,7 +29,7 @@ The installer:
 - copies `nicotine-plugin/mcp_bridge` into Nicotine+'s plugin folder (native or Flatpak);
 - installs the standalone `nicotine-mcp` server to `~/.local/bin` for Claude Desktop and other MCP clients;
 - adds this checkout as a local Claude Code marketplace and installs the `claude-music` plugin from it
-  (the plugin loads in place, so `git pull` + `/reload-plugins` updates it);
+  (after a `git pull`, run `./install.sh` again to pick up changes);
 - builds the library server's venv in the plugin's persistent data directory.
 
 Then: Nicotine+ → Preferences → Plugins → enable plugins → tick **MCP Bridge** (re-tick it after
