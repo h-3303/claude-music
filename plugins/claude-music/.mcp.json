@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "nicotine": {
+      "command": "uv",
+      "args": ["run", "--script", "${CLAUDE_PLUGIN_ROOT}/servers/nicotine_mcp.py"],
+      "env": {
+        "NICOTINE_MCP_SOCKET": "${user_config.bridge_socket}"
+      }
+    },
+    "library": {
+      "command": "uv",
+      "args": ["run", "--project", "${CLAUDE_PLUGIN_ROOT}/servers/library", "claude-music-library"],
+      "env": {
+        "UV_PROJECT_ENVIRONMENT": "${CLAUDE_PLUGIN_DATA}/venv",
+        "CLAUDE_MUSIC_DATA": "${CLAUDE_PLUGIN_DATA}",
+        "CLAUDE_MUSIC_DIR": "${user_config.music_dir}",
+        "NICOTINE_MCP_SOCKET": "${user_config.bridge_socket}"
+      }
+    }
+  }
+}

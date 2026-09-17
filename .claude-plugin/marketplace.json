@@ -1,0 +1,15 @@
+{
+  "name": "claude-music",
+  "description": "Local marketplace for the claude-music plugin (Nicotine+ / Soulseek playlist sync)",
+  "owner": {
+    "name": "h-3303"
+  },
+  "plugins": [
+    {
+      "name": "claude-music",
+      "description": "Import streaming playlists, match them against your local library and fetch the missing tracks through Nicotine+.",
+      "source": "./plugins/claude-music",
+      "category": "productivity"
+    }
+  ]
+}

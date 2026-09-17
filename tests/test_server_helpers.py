@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-SERVER = Path(__file__).resolve().parent.parent / "server" / "nicotine_mcp.py"
+SERVER = Path(__file__).resolve().parent.parent / "plugins" / "claude-music" / "servers" / "nicotine_mcp.py"
 
 
 @pytest.fixture(scope="module")

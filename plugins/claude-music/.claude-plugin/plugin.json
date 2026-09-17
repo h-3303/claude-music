@@ -1,0 +1,24 @@
+{
+  "name": "claude-music",
+  "version": "0.1.0",
+  "description": "Import streaming playlists, match them against your local library and fetch the missing tracks through your running Nicotine+ (Soulseek) client.",
+  "author": {
+    "name": "h-3303"
+  },
+  "license": "GPL-3.0-or-later",
+  "keywords": ["music", "soulseek", "nicotine", "playlists", "musicbrainz"],
+  "userConfig": {
+    "music_dir": {
+      "type": "directory",
+      "title": "Music library",
+      "description": "Folder scanned for tracks you already have (default: ~/Music)",
+      "default": "~/Music"
+    },
+    "bridge_socket": {
+      "type": "string",
+      "title": "Nicotine+ bridge socket",
+      "description": "Only needed if you set a custom socket path in the Nicotine+ MCP Bridge plugin settings",
+      "default": ""
+    }
+  }
+}

@@ -13,10 +13,14 @@ dev = [
     "pytest-timeout>=2.3",
     "anyio>=4",
     "mcp>=2.2,<3",
+    "claude-music-library",
 ]
 
 [tool.uv]
 package = false
+
+[tool.uv.sources]
+claude-music-library = { path = "plugins/claude-music/servers/library", editable = true }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

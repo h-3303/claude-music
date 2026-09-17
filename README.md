@@ -17,7 +17,7 @@ sudo pacman -S --needed nicotine+ uv
 
 The installer does four things:
 
-- copies `plugin/mcp_bridge` into `~/.local/share/nicotine/plugins/` (or the Flatpak data directory, if that's your install);
+- copies `nicotine-plugin/mcp_bridge` into `~/.local/share/nicotine/plugins/` (or the Flatpak data directory, if that's your install);
 - installs the server as `~/.local/bin/nicotine-mcp`;
 - pre-fetches its dependencies;
 - runs `claude mcp add --scope user nicotine -- uv run --script ~/.local/bin/nicotine-mcp`.

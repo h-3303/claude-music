@@ -12,7 +12,7 @@ import pytest
 from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
-SERVER = Path(__file__).resolve().parent.parent / "server" / "nicotine_mcp.py"
+SERVER = Path(__file__).resolve().parent.parent / "plugins" / "claude-music" / "servers" / "nicotine_mcp.py"
 ALBUM = "@@music\\Test Artist\\Album (2001)"
 
 pytestmark = pytest.mark.anyio

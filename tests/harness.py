@@ -21,7 +21,7 @@ import traceback
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-PLUGIN_SOURCE = REPO_ROOT / "plugin" / "mcp_bridge"
+PLUGIN_SOURCE = REPO_ROOT / "nicotine-plugin" / "mcp_bridge"
 PLUGIN_NAME = "mcp_bridge"
 
 COMPONENTS = {"users", "downloads", "search", "network_filter", "pluginhandler", "shares", "uploads", "userbrowse"}
