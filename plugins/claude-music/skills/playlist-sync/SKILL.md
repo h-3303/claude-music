@@ -1,6 +1,6 @@
 ---
 name: playlist-sync
-description: Import a playlist straight from TIDAL, Deezer or YouTube Music, or from an export file (Spotify data export, Exportify CSV, CSV, M3U, JSPF, XSPF), canonicalise it against MusicBrainz, find which tracks are already in the local library, fetch the missing ones through the running Nicotine+ on Soulseek with the user's approval, and write an M3U in the original order. Use when the user mentions a playlist file or link, a TIDAL/Deezer/YouTube Music playlist, syncing a playlist, missing tracks, or getting an album/tracklist onto disk.
+description: Import a playlist straight from TIDAL, Deezer or YouTube Music, or from an export file (Spotify data export, Exportify CSV, CSV, M3U, JSPF, XSPF), canonicalise it against MusicBrainz, find which tracks are already in the local library, fetch the missing ones through the running Nicotine+ on Soulseek with the user's approval, and write an M3U in the original order. Also the direct route when the user simply names songs or albums they want ("get me X by Y", "the whole of that album"): request_music fetches them in one call. Use when the user mentions a playlist file or link, a TIDAL/Deezer/YouTube Music playlist, syncing a playlist, missing tracks, or getting a song, an album or a tracklist onto disk.
 tags: [music, soulseek, playlists]
 ---
 
@@ -9,6 +9,25 @@ tags: [music, soulseek, playlists]
 Two MCP servers do the work: `library` (playlists, MusicBrainz, local library, matching state) and
 `nicotine` (direct control of the running Nicotine+ client). Everything is local; the only network
 calls are MusicBrainz lookups and Soulseek traffic through the user's own Nicotine+.
+
+## Direct requests (no playlist)
+
+When the user names songs or albums rather than handing over a playlist, call `request_music(items)`
+once with everything they named: `{"artist": ..., "title": ...}` per song, `{"artist": ..., "album": ...}`
+per album (strings "Artist - Title" / "Artist - Album (album)" also work). It appends them to the
+persistent **Requests** playlist (a different `playlist=` name keeps things apart), expands albums to
+their tracklist through MusicBrainz, checks the library, and starts one background job that matches the
+rest and queues every match at or above `min_confidence` (0.85), whole folders for albums. This is the one
+place downloads start without a separate confirmation: the request itself is the go-ahead, so do not ask
+for one, but do report immediately what was understood: each album's chosen release (title, date, track
+count), how many tracks were already owned, how many are being fetched, and anything unresolved. A wrong
+release is cancelled with `cancel_job` plus the `nicotine` server's `cancel_downloads`. Then follow steps
+8 and 9 below: poll `playlist_status` (the job's `phase` goes matching → queueing → finished, with
+`queued`, `total_mb`, `users`, `for_review`, `not_found`), `sync_downloads` when the monitor says
+transfers finished, and `review_candidates` for the tracks left `for_review`. An album MusicBrainz does
+not know comes back with an error entry: ask for the tracklist, or search it with the `nicotine` server
+by hand. If the user wants lossy files, pass `allow_formats` and `min_bitrate` exactly as for
+`match_playlist`.
 
 ## Workflow
 
@@ -43,20 +62,27 @@ calls are MusicBrainz lookups and Soulseek traffic through the user's own Nicoti
 7. **Queue.** Call `queue_approved(playlist_id)` **without** confirm, show the user the track count,
    total size and user list, and wait for their explicit OK. Only then `queue_approved(confirm=True)`.
 8. **Sync.** `sync_downloads(playlist_id)` after a while (and again later); it maps transfers to
-   done/failed and retries failed ones from the next candidate. Use the `nicotine` server's
-   `list_downloads` for detail. A download monitor starts with this skill and posts one line per finished
+   done/failed and retries failed ones from the next candidate. Unless the `auto_tidy` setting is off it
+   also files each track it marks done (tags normalised, moved to `Artist/Album/NN - Title`, cover art
+   following, emptied download folder removed) and reports that under `tidied`: mention where the files
+   went and relay any `held` entries (a file it would not place, with the reason). Use the `nicotine`
+   server's `list_downloads` for detail. A download monitor starts with this skill and posts one line per finished
    or failed transfer, and one when nothing is left in progress: that is the cue to sync, not a reason to
    poll in a loop.
 9. **Write.** `write_m3u(playlist_id)`. Tell the user which tracks are still missing.
-10. **File.** If `beets_status()` says beets is installed, offer `beets_import(playlist_id)`: show its
-    dry-run plan (folders, files, commands, copy or move per the beets config) and only after a yes call
-    `beets_import(playlist_id, confirm=True)`. Otherwise offer `/music-tidy`. Never run both on the same
+10. **File.** With `auto_tidy` on (the default) the new tracks are already filed; offer `/music-tidy`
+    only for what it reported as held or for the rest of the library. If `beets_status()` says beets is
+    installed and the user prefers it, they should turn `auto_tidy` off; then offer `beets_import(playlist_id)`:
+    show its dry-run plan (folders, files, commands, copy or move per the beets config) and only after a
+    yes call `beets_import(playlist_id, confirm=True)`. Never run both beets and the tidy on the same
     folder.
 
 ## Guardrails
 
 - Never call `queue_approved(confirm=True)` without first showing its totals and getting an explicit
-  yes in the same conversation.
+  yes in the same conversation. `request_music` is the deliberate exception: it queues on its own
+  because the user's request named exactly what to get; never route a playlist import through it to
+  skip the confirmation.
 - Prefer album mode (the default `album_mode="auto"`) when most of an album is missing; it fetches
   whole folders and checks the track count against MusicBrainz. Do not force `album_mode="off"`
   unless the user asks for single files.

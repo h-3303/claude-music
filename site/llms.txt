@@ -1,6 +1,6 @@
 # claude-music
 
-> A Claude Code plugin that gets a streaming playlist onto disk. It imports the playlist (from TIDAL, Deezer, YouTube Music, or an export file), canonicalises it against MusicBrainz, finds which tracks the local library already has, fetches the rest from Soulseek through the user's own running Nicotine+ client with the user's approval, and writes an M3U in the original order. A second skill tidies the library afterwards: tags normalised, lossy duplicates of FLACs dropped, files shelved as Artist/Album/NN - Title. Everything runs locally; the only network traffic is MusicBrainz lookups, Soulseek through Nicotine+, and the streaming services the user connects. GPL-3.0-or-later.
+> A Claude Code plugin that gets a streaming playlist onto disk. It imports the playlist (from TIDAL, Deezer, YouTube Music, or an export file; or the user simply names songs and albums and request_music fetches them in one call), canonicalises it against MusicBrainz, finds which tracks the local library already has, fetches the rest from Soulseek through the user's own running Nicotine+ client with the user's approval, and writes an M3U in the original order. A second skill tidies the library afterwards: tags normalised, lossy duplicates of FLACs dropped, files shelved as Artist/Album/NN - Title. Everything runs locally; the only network traffic is MusicBrainz lookups, Soulseek through Nicotine+, and the streaming services the user connects. GPL-3.0-or-later.
 
 ## Install
 
@@ -24,7 +24,7 @@ For Claude Desktop or any other MCP client, the Nicotine+ server alone is regist
 - Skill `/playlist-sync` — import → resolve → diff → match → approve → queue → sync → write M3U. Triggers on a playlist file, "sync a playlist", "missing tracks", "get this album onto disk".
 - Skill `/music-tidy` — dry run, questions, then apply with confirm. Triggers on "tidy my music", "sort the new downloads", "organise my library", messy tags, duplicate m4a/flac copies.
 - Agent `matcher` — reviews Soulseek candidates for playlists over ~40 tracks in its own context and returns approve/skip/ask lists.
-- MCP server `library` — import_playlist_file, connect_service, service_status, disconnect_service, list_remote_playlists, import_remote_playlist, resolve_playlist, scan_library, diff_library, match_playlist, playlist_status, cancel_job, review_candidates, approve, skip_tracks, queue_approved, sync_downloads, write_m3u, list_playlists, delete_playlist, library_status, tidy_analyse, tidy_apply, beets_status, beets_import (optional beets hand-off, dry run first), troi_status, troi_scan, troi_resolve (optional ListenBrainz content resolver for MusicBrainz-tagged collections). A plugin monitor reports finished and failed downloads as they happen.
+- MCP server `library` — import_playlist_file, connect_service, service_status, disconnect_service, list_remote_playlists, import_remote_playlist, request_music, resolve_playlist, scan_library, diff_library, match_playlist, playlist_status, cancel_job, review_candidates, approve, skip_tracks, queue_approved, sync_downloads, write_m3u, list_playlists, delete_playlist, library_status, tidy_new (files newly arrived tracks, which sync_downloads also does by itself), tidy_analyse, tidy_apply, beets_status, beets_import (optional beets hand-off, dry run first), troi_status, troi_scan, troi_resolve (optional ListenBrainz content resolver for MusicBrainz-tagged collections). A plugin monitor reports finished and failed downloads as they happen.
 - MCP server `nicotine` — nicotine_status, search, get_search_results, list_searches, stop_search, browse_folder, get_folder_contents, download_files, download_folder, list_downloads, cancel_downloads, retry_downloads, clear_downloads.
 - Hook `SessionStart` — bridge reachability and venv check, stdlib only.
 - User config: music_dir (default ~/Music), mb_contact (MusicBrainz User-Agent contact), bridge_socket (only if changed in Nicotine+).
@@ -43,7 +43,7 @@ Direct: TIDAL (official API v2, Authorization Code + PKCE with the user's own ap
 
 ## Architecture
 
-Claude Code ─stdio─▶ library server (playlists · MusicBrainz · local index · matching) and ─stdio─▶ nicotine server ──Unix socket──▶ MCP Bridge plugin ──▶ Nicotine+ core. Tested against Nicotine+ 3.3.10, 3.3.11 and master with MCP Python SDK 2.x; 146 tests run a headless Nicotine+ core in-process with fake peers and never touch the network.
+Claude Code ─stdio─▶ library server (playlists · MusicBrainz · local index · matching) and ─stdio─▶ nicotine server ──Unix socket──▶ MCP Bridge plugin ──▶ Nicotine+ core. Tested against Nicotine+ 3.3.10, 3.3.11 and master with MCP Python SDK 2.x; 152 tests run a headless Nicotine+ core in-process with fake peers and never touch the network.
 
 ## Links
 

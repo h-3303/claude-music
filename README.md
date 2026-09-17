@@ -6,8 +6,10 @@
 A Claude Code plugin that gets a streaming playlist onto disk: import the playlist file, canonicalise
 it against MusicBrainz, see what you already have, fetch the rest from Soulseek through your own running
 Nicotine+ (one identity, your shares intact), and write an M3U in the original order. Nothing is
-downloaded until you have seen the totals and said yes. Afterwards, `/music-tidy` puts the library in
-order: tags normalised, lossy duplicates of FLACs dropped, everything filed as `Artist/Album/NN - Title`.
+downloaded until you have seen the totals and said yes. Or skip the playlist and just name songs and
+albums: `request_music` fetches them in one go. Every track that lands is filed as it arrives (tags
+normalised, `Artist/Album/NN - Title`), and `/music-tidy` handles the rest of the library: lossy
+duplicates of FLACs, playlist dumps, spelling variants, anything that needs a decision.
 
 ```
 Claude Code ─┬─stdio─▶ library server (playlists · MusicBrainz · local index · matching)
@@ -64,8 +66,9 @@ To update later: `/plugin marketplace update claude-music` then `/plugin update 
 for the Claude side, and `install.sh` again for the Nicotine+ side (then re-tick the plugin).
 
 Plugin settings (`/plugin` → configure): music library folder (default `~/Music`), a MusicBrainz
-contact (email or URL, sent in the User-Agent as their API terms ask), and the bridge socket path if
-you changed it in Nicotine+.
+contact (email or URL, sent in the User-Agent as their API terms ask), whether new tracks are tidied
+automatically (on by default), your TIDAL client id, and the bridge socket path if you changed it in
+Nicotine+.
 
 ## Use
 
@@ -90,10 +93,31 @@ Say `/playlist-sync` or just hand Claude a playlist file. The skill walks throug
 
 State lives in `~/.claude/plugins/data/claude-music@claude-music/state.db`; every step is resumable.
 
+### Just name what you want
+
+When there is no playlist, only songs and albums you remember, say so: "get me Royals by Lorde and the
+whole of Pure Heroine". Claude calls `request_music` with the items and that one call does the pipeline:
+the items are appended to a persistent **Requests** playlist (it keeps growing across sessions, so it
+doubles as the record of everything you asked for), an album is expanded to its tracklist through
+MusicBrainz (the plain official release, not the deluxe one), the library is checked, and a background
+job matches the rest on Soulseek and queues every match at or above the confidence threshold (0.85 by
+default), whole folders for albums. There is no separate confirmation step here: the request is the
+go-ahead. Claude reports what was understood straight away (for an album: which release, how many tracks)
+so a wrong pick can be cancelled with `cancel_job` and `cancel_downloads`. Doubtful matches wait in
+`candidates` for `review_candidates`; `sync_downloads` and `write_m3u` work as for any playlist.
+
 ### Tidy
 
-Say `/music-tidy` (or "sort the new downloads"). The `music-tidy` skill drives two tools on the library
-server and one decisions file:
+**New tracks are filed as they arrive.** `sync_downloads` runs a scoped tidy on every track it marks
+done: tags normalised, the file moved to `Artist/Album/NN - Title`, cover art following once its download
+folder is empty, the empty folder removed. Only those files are touched, nothing is ever deleted, and a
+file that cannot be placed (missing tags, lossy copy of a FLAC you own, target taken) stays where it is
+and is listed. Tracks that arrive by other routes are filed with `tidy_new` (an incremental scan decides
+what is new; files still being written are left alone). The plugin setting **Tidy new tracks
+automatically** turns the automatic part off, which you want if beets files your music.
+
+For the rest, say `/music-tidy` (or "sort the library"). The `music-tidy` skill drives two tools on the
+library server and one decisions file:
 
 1. `tidy_analyse` — a dry run. Writes `<library>/.tidy/report.txt` and `plan.json`, returns counts and
    the open questions, changes nothing. Refuses to be applied while audio files are still being written.
@@ -145,7 +169,8 @@ Three optional pieces, each used only when its tool is installed:
   in quiet mode, with skips logged to `<data>/beets-import.log`. Copy versus move follows your beets config
   (`move=True` forces a move); afterwards each track's path is updated to where beets put it so `write_m3u`
   still works. `beets_status` shows the config path, library directory and import settings. beets and
-  `music-tidy` are alternatives: use one or the other on a given folder.
+  `music-tidy` are alternatives: use one or the other on a given folder, and turn the automatic tidy of
+  new tracks off in the plugin settings when beets is the one doing the filing.
 - **Troi (ListenBrainz content resolver).** For a MusicBrainz-tagged collection (Picard, beets),
   `troi_scan()` indexes it into `<data>/troi.db` and `troi_resolve(playlist_id)` finds the still-missing
   tracks by recording id, then fuzzy artist + title, marking hits `in_library` before anything is searched
@@ -239,5 +264,5 @@ claude plugin validate plugins/claude-music --strict
 
 Layout: `nicotine-plugin/mcp_bridge` (Nicotine+ plugin, stdlib only), `plugins/claude-music`
 (the Claude Code plugin: manifest, `.mcp.json`, `servers/nicotine_mcp.py`, `servers/library/` with the
-service connectors under `connectors/`, `beets.py`, `troi_resolver.py`, the `playlist-sync` and `music-tidy` skills, agent, hook, `monitors/`), `tests/`, `docs/ROADMAP.md`, `site/` (the static site, deployed to
+service connectors under `connectors/`, `requester.py`, `beets.py`, `troi_resolver.py`, the `playlist-sync` and `music-tidy` skills, agent, hook, `monitors/`), `tests/`, `docs/ROADMAP.md`, `site/` (the static site, deployed to
 Vercel from that folder). Licence: GPL-3.0-or-later.

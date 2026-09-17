@@ -1,6 +1,6 @@
 ---
 name: music-tidy
-description: Clean up and organise the local music library. Normalise tags, drop lossy duplicates of FLACs, remove playlist dumps, file everything as Artist/Album/NN - Title.ext, and clear download reports out of the library. Use when the user says "/music-tidy", "tidy my music", "clean up the music folder", "sort the new downloads", "organise my library", or mentions stray tracks, duplicate m4a/flac copies, or messy tags. Also the natural follow-up once playlist-sync downloads have landed.
+description: Clean up and organise the local music library. Normalise tags, drop lossy duplicates of FLACs, remove playlist dumps, file everything as Artist/Album/NN - Title.ext, and clear download reports out of the library. New downloads are filed automatically as they land (tidy_new does it for files that arrived any other way); this skill is the full pass for everything else. Use when the user says "/music-tidy", "tidy my music", "clean up the music folder", "sort the new downloads", "organise my library", or mentions stray tracks, duplicate m4a/flac copies, or messy tags.
 tags: [music, tags, library]
 ---
 
@@ -30,8 +30,23 @@ planner.
   to `.tidy/reports/`. Backups and logs live in `.tidy/`.
 - Dot-folders (`.thumbnails/` and the like) belong to other programs; the planner never enters them.
 
+## New tracks file themselves
+
+Every track `sync_downloads` marks done goes through a scoped pass at once (unless the plugin setting
+`auto_tidy` is off): its tags are normalised by the same rules, it is moved to `Artist/Album/NN - Title`,
+cover art and booklets follow once their download folder holds no more audio, and the emptied folder is
+removed. Nothing else is touched and nothing is ever deleted: a file the full tidy would delete (a lossy
+copy of a FLAC already owned), one missing ARTIST, ALBUM or TITLE, or one whose target path is taken is
+left where it is and listed under `held` with the reason. `tidy_new(paths=None)` runs the same pass by
+hand: with `paths` for specific files, without them after an incremental library scan (everything not
+indexed before counts as new; files written in the last three minutes are left to settle and listed as
+`settling`). When the user asks to "sort the new downloads", `tidy_new()` is the first thing to call;
+what it holds, plus deletions and open questions, is what this skill's full procedure is for.
+
 ## Tools
 
+- `tidy_new(paths=None, music_dir=None)`: the scoped pass above. Moves files but never deletes; safe
+  without a plan review.
 - `tidy_analyse(music_dir=None)`: dry run. Writes `<library>/.tidy/report.txt` and `plan.json`,
   returns a summary. Changes nothing.
 - `tidy_apply(music_dir=None, confirm=False, force=False)`: without `confirm` it is another dry run.

@@ -2,8 +2,8 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "claude-music",
   "displayName": "claude-music",
-  "version": "0.4.0",
-  "description": "Import streaming playlists (TIDAL, Deezer, YouTube Music, or exported files), match them against your local library, fetch the missing tracks through your running Nicotine+ (Soulseek) client, and tidy the library afterwards: tags, duplicates, Artist/Album/NN - Title.",
+  "version": "0.5.0",
+  "description": "Import streaming playlists (TIDAL, Deezer, YouTube Music, or exported files) or just name songs and albums, match them against your local library, fetch the missing tracks through your running Nicotine+ (Soulseek) client, and file every new track as it lands: tags, duplicates, Artist/Album/NN - Title.",
   "author": {
     "name": "h-3303",
     "url": "https://github.com/h-3303"
@@ -53,6 +53,12 @@
       "title": "TIDAL client id",
       "description": "Client ID of your own app at developer.tidal.com (register the redirect URI http://127.0.0.1:43117/callback on it). Leave empty if you do not use TIDAL.",
       "default": ""
+    },
+    "auto_tidy": {
+      "type": "boolean",
+      "title": "Tidy new tracks automatically",
+      "description": "File each finished download as Artist/Album/NN - Title with normalised tags as soon as sync_downloads sees it (never deletes anything). Turn off if beets files your music.",
+      "default": true
     }
   }
 }

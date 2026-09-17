@@ -114,7 +114,13 @@ def emit(line):
 def describe(transfer, data_dir):
     name = transfer["path"].rpartition("\\")[2]
     playlist = playlist_of(data_dir, transfer["download_id"])
-    suffix = f" (playlist {playlist['id']} \"{playlist['name']}\": call sync_downloads)" if playlist else ""
+    if playlist:
+        suffix = f" (playlist {playlist['id']} \"{playlist['name']}\": call sync_downloads)"
+    elif transfer["status"] == "Finished":
+        suffix = " (not from a playlist: tidy_new files it)"
+    else:
+        suffix = ""
+
     return name, suffix
 
 
