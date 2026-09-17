@@ -16,6 +16,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from . import __version__, config
+from .beets import Beets, BeetsError
 from .bridge import BridgeClient, BridgeError
 from .connectors import SERVICES, ConnectorError, get_connector
 from .db import Database
@@ -27,6 +28,7 @@ from .matcher import MatchJob, MatchPrefs, download_id
 from .models import MATCH_STATUSES, Track
 from .musicbrainz import MusicBrainzClient, MusicBrainzError
 from .tidy import Tidy, TidyError
+from .troi_resolver import Troi, TroiError
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, open_world_hint=False)
 WRITE_LOCAL = ToolAnnotations(read_only_hint=False, destructive_hint=False, open_world_hint=False)
@@ -47,7 +49,9 @@ mcp = MCPServer(
         "connect_service('tidal') (official API, browser login) or connect_service('youtube-music', headers_raw=...), "
         "then list_remote_playlists / import_remote_playlist; Deezer public playlists need no login. Library "
         "housekeeping: tidy_analyse (dry run, writes a report) then tidy_apply(confirm=True) once the user has "
-        "approved the plan."
+        "approved the plan. Optional extras when installed: beets_import(playlist_id) hands finished downloads to "
+        "`beet import` (dry run first, confirm=True to import); troi_scan / troi_resolve find tracks in a "
+        "MusicBrainz-tagged collection through the ListenBrainz content resolver."
     ),
 )
 
@@ -81,7 +85,7 @@ def tool_errors(function):
         try:
             return await function(*args, **kwargs)
         except (LookupError, ValueError, FileNotFoundError, BridgeError, MusicBrainzError, PermissionError, TidyError,
-                ConnectorError) as error:
+                ConnectorError, BeetsError, TroiError) as error:
             raise ToolError(str(error)) from None
 
     return wrapper
@@ -720,6 +724,116 @@ async def tidy_apply(music_dir: str | None = None, confirm: bool = False, force:
     return result
 
 
+# beets (optional) #
+
+def _beets():
+    return Beets()
+
+
+@mcp.tool(annotations=READ_ONLY)
+@tool_errors
+async def beets_status() -> dict:
+    """Whether `beet` is installed, its version, config path, library directory and import settings (copy/move)."""
+    return await asyncio.to_thread(_beets().status)
+
+
+@mcp.tool(annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True, open_world_hint=True))
+@tool_errors
+async def beets_import(playlist_id: int, confirm: bool = False, move: bool = False) -> dict:
+    """Hand this playlist's finished downloads to beets. Groups them by folder: a folder where one MusicBrainz
+    release dominates is imported as an album with `--search-id <release id>`, anything else as singletons with
+    the recording ids as hints. Without confirm it only runs `beet import --pretend` and returns the plan (folders,
+    files, the exact commands). With confirm=True it imports in quiet mode (beets skips anything it is unsure
+    about and logs it to <data>/beets-import.log) and then updates each track's local path to where beets put
+    it. Files are copied or moved according to the beets config; move=True forces a move. Show the plan and get
+    the user's yes before confirm=True."""
+    db().get_playlist(playlist_id)
+    beets = _beets()
+    rows = db().tracks(playlist_id, statuses=["done"])
+    plan = Beets.plan(rows)
+
+    if not plan:
+        return {"playlist_id": playlist_id, "folders": [], "note": "no finished downloads to import"}
+
+    if not confirm:
+        plan = await asyncio.to_thread(beets.dry_run, plan, move)
+        return {"playlist_id": playlist_id, "dry_run": True, "folders": plan, "beets": await asyncio.to_thread(beets.status),
+                "note": "nothing imported; call again with confirm=True after the user has approved this plan"}
+
+    results = await asyncio.to_thread(beets.import_folders, plan, move)
+    by_id = {r["id"]: r for r in rows}
+    relocated = 0
+
+    def relocate():
+        nonlocal relocated
+
+        for entry in results:
+            if not entry["imported"]:
+                continue
+
+            for track_id in entry["track_ids"]:
+                row = by_id[track_id]
+                new_path = beets.path_for_recording(row["mb_recording_id"])
+
+                if new_path and new_path != row["local_path"]:
+                    db().set_match(track_id, "done", local_path=new_path)
+                    relocated += 1
+
+    await asyncio.to_thread(relocate)
+    imported = sum(1 for r in results if r["imported"])
+    return {"playlist_id": playlist_id, "dry_run": False, "folders_imported": imported,
+            "folders_failed": len(results) - imported, "tracks_relocated": relocated,
+            "log": str(config.data_dir() / "beets-import.log"), "folders": results}
+
+
+# Troi (optional) #
+
+def _troi():
+    return Troi()
+
+
+@mcp.tool(annotations=READ_ONLY)
+@tool_errors
+async def troi_status() -> dict:
+    """Whether the ListenBrainz Troi content resolver is installed and has indexed the collection."""
+    return await asyncio.to_thread(_troi().status)
+
+
+@mcp.tool(annotations=WRITE_LOCAL)
+@tool_errors
+async def troi_scan(music_dir: str | None = None, force: bool = False) -> dict:
+    """Index the collection with `troi db scan` (creates <data>/troi.db first if needed). Only files carrying
+    MusicBrainz tags become resolvable by id; the rest only through fuzzy artist + title. Slow on a large
+    library the first time; incremental afterwards unless force=True."""
+    root = Path(music_dir).expanduser() if music_dir else config.music_dir()
+    return await asyncio.to_thread(_troi().scan, root, force)
+
+
+@mcp.tool(annotations=WRITE_LOCAL)
+@tool_errors
+async def troi_resolve(playlist_id: int, threshold: float = 0.8) -> dict:
+    """Ask Troi to find this playlist's still-missing tracks in the indexed collection (recording MBID first,
+    then fuzzy artist + title above the threshold). Tracks it finds on disk are marked in_library with their path,
+    so they are not searched for on Soulseek. Run resolve_playlist first so tracks carry MusicBrainz ids."""
+    db().get_playlist(playlist_id)
+    rows = [r for r in db().tracks(playlist_id) if r["status"] not in ("in_library", "done", "skipped")]
+
+    if not rows:
+        return {"playlist_id": playlist_id, "queried": 0, "found": 0, "counts": {k: v for k, v in db().status_counts(playlist_id).items() if v}}
+
+    found = await asyncio.to_thread(_troi().resolve, rows, threshold)
+    by_id = {r["id"]: r for r in rows}
+    tracks = []
+
+    for track_id, path in found.items():
+        db().set_match(track_id, "in_library", local_path=path, last_error=None)
+        row = by_id[track_id]
+        tracks.append({"track_id": track_id, "position": row["position"] + 1, "artist": row["artist"], "title": row["title"], "local_path": path})
+
+    return {"playlist_id": playlist_id, "queried": len(rows), "found": len(found), "tracks": tracks[:50],
+            "counts": {k: v for k, v in db().status_counts(playlist_id).items() if v}}
+
+
 @mcp.tool(annotations=READ_ONLY)
 @tool_errors
 async def library_status() -> dict:
@@ -738,7 +852,22 @@ async def library_status() -> dict:
     return result
 
 
+def _publish_bridge_socket():
+    """Tell the download monitor about a custom bridge socket (monitors cannot read user config)."""
+    marker = config.data_dir() / "bridge_socket"
+
+    try:
+        if os.environ.get("NICOTINE_MCP_SOCKET"):
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.write_text(os.environ["NICOTINE_MCP_SOCKET"] + "\n", encoding="utf-8")
+        elif marker.exists():
+            marker.unlink()
+    except OSError:
+        pass
+
+
 def main():
+    _publish_bridge_socket()
     mcp.run()
 
 
