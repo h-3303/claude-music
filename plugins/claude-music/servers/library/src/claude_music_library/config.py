@@ -62,3 +62,9 @@ def tidal_client_id() -> str:
 def tidal_redirect_uri() -> str:
     """Loopback redirect for the TIDAL PKCE flow; must be registered verbatim on the TIDAL app."""
     return (os.environ.get("CLAUDE_MUSIC_TIDAL_REDIRECT_URI") or "").strip() or "http://127.0.0.1:43117/callback"
+
+
+def auto_tidy() -> bool:
+    """Tidy newly downloaded tracks (tags + Artist/Album/NN - Title) as soon as sync_downloads sees them finish."""
+    value = (os.environ.get("CLAUDE_MUSIC_AUTO_TIDY") or "").strip().lower()
+    return value not in ("0", "false", "no", "off")

@@ -255,3 +255,45 @@ async def test_server_tools_confirm_gate(library, monkeypatch):
 
     with pytest.raises(ToolError, match="does not exist"):
         await server.tidy_analyse(music_dir=str(library / "nope"))
+
+
+def test_apply_new_touches_only_the_new_files(library):
+    # already filed, with a whitespace problem the full tidy would fix: must stay untouched here
+    make_flac(library / "Art" / "Alb" / "01 - One.flac", artist=" Art ", albumartist="Art", album="Alb", title="One", tracknumber="1")
+    # just arrived (no settle: the caller knows these are complete)
+    dl = library / "Art - Alb (2001) [FLAC]"
+    make_flac(dl / "02 - Two.flac", artist="Art", album="Alb", title="Two", tracknumber="2/9")
+    make_mp3(dl / "01 - One.mp3", artist="Art", album="Alb", title="One", tracknumber="1")   # lossy copy of an owned FLAC
+    (dl / "cover.jpg").write_bytes(b"jpg")
+    make_flac(library / "noalbum.flac", artist="Solo", title="Single")
+    (library / "Download Report 2.txt").write_text("Download Report\n")
+
+    result = Tidy(library).apply_new([dl / "02 - Two.flac", dl / "01 - One.mp3", library / "noalbum.flac",
+                                      library / "missing.flac", "/elsewhere/x.flac"])
+    assert result["moved"] == 1 and result["retagged"] == 2 and result["errors"] == []
+    assert result["moves"] == {str(dl / "02 - Two.flac"): str(library / "Art" / "Alb" / "02 - Two.flac")}
+    two = fields(library / "Art" / "Alb" / "02 - Two.flac")
+    assert two["TRACKNUMBER"] == ["2"] and two["TOTALTRACKS"] == ["9"] and two["ALBUMARTIST"] == ["Art"]
+    assert fields(library / "Art" / "Alb" / "01 - One.flac")["ARTIST"] == [" Art "], "siblings are not touched"
+    held = {h["path"]: h["why"] for h in result["held"]}
+    assert "the full tidy would delete it" in held["Art - Alb (2001) [FLAC]/01 - One.mp3"]
+    assert "missing ARTIST, ALBUM or TITLE" in held["noalbum.flac"]
+    assert "not found" in held["missing.flac"] and held["/elsewhere/x.flac"] == "outside the library"
+    assert (dl / "01 - One.mp3").is_file() and result["deletions_waiting"] == 1, "never deletes"
+    assert (library / "noalbum.flac").is_file()
+    assert result["extras_filed"] == 0 and result["pruned_folders"] == 0 and (dl / "cover.jpg").is_file(), "audio still in the folder"
+    assert result["reports_filed"] == 1 and not (library / "Download Report 2.txt").exists()
+    assert "# apply-new" in (library / ".tidy" / "tag_changes.log").read_text()
+    assert Path(result["backup_path"]).name.endswith("_new.json")
+
+    # the mp3 gone (what the full tidy would do) and one more track arrives: the cover follows, the folder is pruned
+    (dl / "01 - One.mp3").unlink()
+    make_flac(dl / "03 - Three.flac", artist="Art", album="Alb", title="Three", tracknumber="3")
+    result = Tidy(library).apply_new([dl / "03 - Three.flac"])
+    assert result["moved"] == 1 and result["extras_filed"] == 1 and result["pruned_folders"] == 1
+    assert (library / "Art" / "Alb" / "cover.jpg").is_file() and not dl.exists()
+
+    # a new file whose target is taken stays put
+    make_flac(library / "dup.flac", artist="Art", album="Alb", title="Two", tracknumber="2")
+    result = Tidy(library).apply_new([library / "dup.flac"])
+    assert result["moved"] == 0 and "clash" in result["held"][0]["why"] and (library / "dup.flac").is_file()

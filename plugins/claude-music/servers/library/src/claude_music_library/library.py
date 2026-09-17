@@ -60,13 +60,14 @@ def read_tags(path: Path) -> dict | None:
     }
 
 
-def scan_library(db: Database, root: Path, rescan=False, progress=None) -> dict:
+def scan_library(db: Database, root: Path, rescan=False, progress=None, collect_new=False) -> dict:
     root = Path(root).expanduser().resolve()
 
     if not root.is_dir():
         raise FileNotFoundError(f"music directory {root} does not exist")
 
     seen: set[str] = set()
+    new_paths: list[str] = []
     counts = {"root": str(root), "files": 0, "indexed": 0, "unchanged": 0, "unreadable": 0, "removed": 0}
     started = time.monotonic()
 
@@ -95,22 +96,14 @@ def scan_library(db: Database, root: Path, rescan=False, progress=None) -> dict:
                 counts["unchanged"] += 1
                 continue
 
-            tags = read_tags(path)
-
-            if tags is None:
+            if not index_file(db, path, stat):
                 counts["unreadable"] += 1
                 continue
 
-            title = tags["title"] or path.stem
-            db.library_upsert(
-                path=key, mtime=stat.st_mtime, size=stat.st_size, title=title, artist=tags["artist"],
-                album=tags["album"], duration_ms=tags["duration_ms"], isrc=tags["isrc"],
-                mb_recording_id=tags["mb_recording_id"], mb_release_id=tags["mb_release_id"], format=tags["format"],
-                bitrate=tags["bitrate"], sample_rate=tags["sample_rate"], bit_depth=tags["bit_depth"],
-                title_norm=normalize(clean_title(title)), artist_norm=normalize(clean_title(tags["artist"] or "")),
-                scanned_at=utcnow(),
-            )
             counts["indexed"] += 1
+
+            if existing is None:
+                new_paths.append(key)
 
             if progress and counts["indexed"] % 200 == 0:
                 progress(counts)
@@ -118,7 +111,45 @@ def scan_library(db: Database, root: Path, rescan=False, progress=None) -> dict:
     counts["removed"] = db.library_prune(seen, str(root))
     counts["seconds"] = round(time.monotonic() - started, 1)
     counts["library_total"] = db.library_count()
+
+    if collect_new:
+        counts["new_paths"] = new_paths
+
     return counts
+
+
+def index_file(db: Database, path: Path, stat=None) -> bool:
+    """(Re)index one audio file; False when it cannot be read."""
+    path = Path(path)
+    stat = stat or path.stat()
+    tags = read_tags(path)
+
+    if tags is None:
+        return False
+
+    title = tags["title"] or path.stem
+    db.library_upsert(
+        path=str(path), mtime=stat.st_mtime, size=stat.st_size, title=title, artist=tags["artist"],
+        album=tags["album"], duration_ms=tags["duration_ms"], isrc=tags["isrc"],
+        mb_recording_id=tags["mb_recording_id"], mb_release_id=tags["mb_release_id"], format=tags["format"],
+        bitrate=tags["bitrate"], sample_rate=tags["sample_rate"], bit_depth=tags["bit_depth"],
+        title_norm=normalize(clean_title(title)), artist_norm=normalize(clean_title(tags["artist"] or "")),
+        scanned_at=utcnow(),
+    )
+    return True
+
+
+def reindex_moved(db: Database, moves: dict) -> int:
+    """After files moved ({old_path: new_path}): drop the old index rows, index the new paths."""
+    indexed = 0
+
+    for old, new in moves.items():
+        db.conn.execute("DELETE FROM library_files WHERE path = ?", (old,))
+
+        if Path(new).is_file() and index_file(db, Path(new)):
+            indexed += 1
+
+    return indexed
 
 
 def find_local(db: Database, track, tolerance_s=DURATION_TOLERANCE_S) -> tuple[str, str] | None:

@@ -1016,6 +1016,59 @@ class Tidy:
 
         return self.summary(files, failed, artist_groups, album_groups, notes, plan)
 
+    @staticmethod
+    def _write_tags(entry, log, rule_fields, rule_files, errors) -> int:
+        """Write an entry's planned tag changes (plus R1 on every other text tag); 1 when the file was saved."""
+        # R1 on every other text tag (comments, freeform, ...); lyrics left alone
+        for key, index, value in list(all_text_tags(entry.audio)):
+            if key.lower() in LYRIC_KEYS or is_canonical_key(key):
+                continue
+
+            cleaned = clean_ws(value)
+
+            if cleaned != value:
+                set_raw_text(entry.audio, key, index, cleaned)
+                entry.changes.append((key, [value[:60]], [cleaned[:60]], "R1 trim whitespace (other text tag)"))
+
+        if not entry.changes:
+            return 0
+
+        seen = set()
+
+        for field, old, new, rule in entry.changes:
+            if field in FIELDS:
+                set_field(entry.audio, field, new)
+
+            log(entry.rel, field, f"{json.dumps(old, ensure_ascii=False)} -> {json.dumps(new, ensure_ascii=False)}", rule)
+            rule_fields[rule] += 1
+
+            if rule not in seen:
+                rule_files[rule] += 1
+                seen.add(rule)
+
+        try:
+            entry.audio.save()
+            return 1
+        except Exception as error:   # noqa: BLE001 - one bad file must not stop the run; it is reported
+            errors.append((entry.rel, repr(error)))
+            log(entry.rel, "SAVE FAILED", repr(error), "!!")
+            return 0
+
+    def _file_reports(self, plan, stamp, log):
+        if not plan["reports"]:
+            return
+
+        os.makedirs(os.path.join(self.work, "reports"), exist_ok=True)
+
+        for rel in plan["reports"]:
+            dest = os.path.join(self.work, "reports", f"{stamp}_{os.path.basename(rel)}")
+            os.rename(os.path.join(self.root, rel), dest)
+            log(rel, "MOVED", os.path.relpath(dest, self.root), "R15 download report out of library")
+
+    def _append_log(self, header, log_lines):
+        with open(self.log_path, "a", encoding="utf-8") as handle:
+            handle.write(f"# {header}\n" + "".join(line + "\n" for line in log_lines))
+
     def apply(self, force=False):
         files, failed, artist_groups, album_groups, notes, plan = self.plan_everything()
 
@@ -1054,39 +1107,7 @@ class Tidy:
         written = 0
 
         for entry in plan["keep"]:
-            # R1 on every other text tag (comments, freeform, ...); lyrics left alone
-            for key, index, value in list(all_text_tags(entry.audio)):
-                if key.lower() in LYRIC_KEYS or is_canonical_key(key):
-                    continue
-
-                cleaned = clean_ws(value)
-
-                if cleaned != value:
-                    set_raw_text(entry.audio, key, index, cleaned)
-                    entry.changes.append((key, [value[:60]], [cleaned[:60]], "R1 trim whitespace (other text tag)"))
-
-            if not entry.changes:
-                continue
-
-            seen = set()
-
-            for field, old, new, rule in entry.changes:
-                if field in FIELDS:
-                    set_field(entry.audio, field, new)
-
-                log(entry.rel, field, f"{json.dumps(old, ensure_ascii=False)} -> {json.dumps(new, ensure_ascii=False)}", rule)
-                rule_fields[rule] += 1
-
-                if rule not in seen:
-                    rule_files[rule] += 1
-                    seen.add(rule)
-
-            try:
-                entry.audio.save()
-                written += 1
-            except Exception as error:   # noqa: BLE001 - one bad file must not stop the run; it is reported
-                errors.append((entry.rel, repr(error)))
-                log(entry.rel, "SAVE FAILED", repr(error), "!!")
+            written += self._write_tags(entry, log, rule_fields, rule_files, errors)
 
         # moves
         moved = 0
@@ -1105,13 +1126,7 @@ class Tidy:
             log(entry.rel, "MOVED", entry.target, "R14 Artist/Album/NN - Title")
 
         # download reports out of the library
-        if plan["reports"]:
-            os.makedirs(os.path.join(self.work, "reports"), exist_ok=True)
-
-            for rel in plan["reports"]:
-                dest = os.path.join(self.work, "reports", f"{stamp}_{os.path.basename(rel)}")
-                os.rename(os.path.join(self.root, rel), dest)
-                log(rel, "MOVED", os.path.relpath(dest, self.root), "R15 download report out of library")
+        self._file_reports(plan, stamp, log)
 
         # approved non-audio moves (booklets, nfo, cover art into album folders)
         filed = 0
@@ -1141,8 +1156,7 @@ class Tidy:
                 pruned += 1
                 log(os.path.relpath(dirpath, self.root), "RMDIR", "empty", "R16 prune")
 
-        with open(self.log_path, "a", encoding="utf-8") as handle:
-            handle.write(f"# apply {stamp}\n" + "".join(line + "\n" for line in log_lines))
+        self._append_log(f"apply {stamp}", log_lines)
 
         return {
             "root": self.root,
@@ -1154,6 +1168,138 @@ class Tidy:
             "pruned_folders": pruned,
             "errors": [{"path": rel, "error": error} for rel, error in errors],
             "by_rule": {rule: {"fields": rule_fields[rule], "files": rule_files[rule]} for rule in sorted(rule_fields)},
+            "backup_path": backup_path,
+            "log_path": self.log_path,
+        }
+
+    # Scoped pass for files that have just arrived #
+
+    def apply_new(self, paths):
+        """Tidy only the given (just-downloaded) audio files: retag them and file them as Artist/Album/NN - Title.
+
+        Everything else in the library is left exactly as it is: no deletions, no sibling propagation, no settle
+        check (the caller knows these files are complete). A file is held in place, and reported, when the full
+        tidy would delete it (lossy copy of an owned FLAC), when it lacks ARTIST, ALBUM or TITLE, or when its
+        target already exists. Images and booklets left behind in an emptied download folder follow the album;
+        the emptied folder is pruned. Download reports are filed as in the full tidy.
+        """
+        wanted, outside = set(), []
+
+        for path in paths:
+            full = os.path.abspath(os.path.expanduser(str(path)))
+
+            if os.path.commonpath([full, self.root]) != self.root:
+                outside.append(str(path))
+                continue
+
+            wanted.add(os.path.relpath(full, self.root))
+
+        files, failed, artist_groups, album_groups, notes, plan = self.plan_everything()
+        new = [entry for entry in files if entry.rel in wanted]
+        known = {entry.rel for entry in files} | {rel for rel, _ in failed}
+        held = [{"path": rel, "why": f"unreadable: {error}"} for rel, error in failed if rel in wanted]
+        held += [{"path": rel, "why": "not found, or not an audio file"} for rel in sorted(wanted - known)]
+        held += [{"path": path, "why": "outside the library"} for path in outside]
+        deletions = {entry: why for entry, why, _ in plan["deletions"]}
+        clashing = {entry for group in plan["clashes"].values() for entry in group}
+        stamp = f"{datetime.datetime.now():%Y-%m-%d_%H%M%S}"
+        log_lines, errors = [], []
+        rule_fields, rule_files = collections.Counter(), collections.Counter()
+
+        def log(rel, action, detail, rule):
+            log_lines.append(f"{rel}\t{action}\t{detail}\t[{rule}]")
+
+        backup_path = None
+
+        if new:
+            os.makedirs(os.path.join(self.work, "backups"), exist_ok=True)
+            backup_path = os.path.join(self.work, "backups", f"tags_{stamp}_new.json")
+
+            with open(backup_path, "w", encoding="utf-8") as handle:
+                json.dump({e.rel: raw_tag_snapshot(e.audio) for e in new}, handle, indent=1, ensure_ascii=False)
+
+        written, moves, sources = 0, {}, collections.defaultdict(set)
+
+        for entry in new:
+            if entry in deletions:
+                held.append({"path": entry.rel, "why": f"the full tidy would delete it: {deletions[entry]}"})
+                continue
+
+            written += self._write_tags(entry, log, rule_fields, rule_files, errors)
+
+            if not (first(entry, "ALBUM") and first(entry, "TITLE") and (first(entry, "ALBUMARTIST") or first(entry, "ARTIST"))):
+                held.append({"path": entry.rel, "why": "missing ARTIST, ALBUM or TITLE; settle it in approved.py and run the full tidy"})
+                continue
+
+            if entry in clashing:
+                held.append({"path": entry.rel, "why": f"target path clash: {entry.target}"})
+                continue
+
+            if entry.rel == entry.target:
+                continue
+
+            dest = os.path.join(self.root, entry.target)
+
+            if os.path.exists(dest):
+                held.append({"path": entry.rel, "why": f"target exists: {entry.target}"})
+                continue
+
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            os.rename(entry.path, dest)
+            moves[entry.path] = dest
+            sources[os.path.dirname(entry.path)].add(os.path.dirname(dest))
+            log(entry.rel, "MOVED", entry.target, "R14 Artist/Album/NN - Title")
+
+        # emptied download folders: images and booklets follow the album, then the folder goes
+        filed, pruned = 0, 0
+
+        for source, targets in sources.items():
+            if source == self.root or not os.path.isdir(source):
+                continue
+
+            leftovers = sorted(os.listdir(source))
+
+            if any(os.path.splitext(name)[1].lower() in EXT for name in leftovers):
+                continue   # more audio still to come (or to be decided on)
+
+            if len(targets) == 1:
+                target = next(iter(targets))
+
+                for name in leftovers:
+                    if os.path.splitext(name)[1].lower() not in IMG | EXTRA or os.path.exists(os.path.join(target, name)):
+                        continue
+
+                    os.rename(os.path.join(source, name), os.path.join(target, name))
+                    filed += 1
+                    log(os.path.relpath(os.path.join(source, name), self.root), "MOVED",
+                        os.path.relpath(os.path.join(target, name), self.root), "R17 album extra filed with its album")
+
+            folder = source
+
+            while folder != self.root and os.path.isdir(folder) and not os.listdir(folder):
+                os.rmdir(folder)
+                pruned += 1
+                log(os.path.relpath(folder, self.root), "RMDIR", "empty", "R16 prune")
+                folder = os.path.dirname(folder)
+
+        self._file_reports(plan, stamp, log)
+
+        if log_lines:
+            self._append_log(f"apply-new {stamp}", log_lines)
+
+        return {
+            "root": self.root,
+            "requested": len(paths),
+            "retagged": written,
+            "moved": len(moves),
+            "moves": moves,
+            "extras_filed": filed,
+            "reports_filed": len(plan["reports"]),
+            "pruned_folders": pruned,
+            "held": held,
+            "errors": [{"path": rel, "error": error} for rel, error in errors],
+            "by_rule": {rule: {"fields": rule_fields[rule], "files": rule_files[rule]} for rule in sorted(rule_fields)},
+            "deletions_waiting": len(plan["deletions"]),
             "backup_path": backup_path,
             "log_path": self.log_path,
         }
