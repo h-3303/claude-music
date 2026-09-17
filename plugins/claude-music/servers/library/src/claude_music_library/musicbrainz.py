@@ -166,3 +166,67 @@ class MusicBrainzClient:
             "release_track_count": self._release_track_count(chosen) if chosen else None,
             "method": method,
         }
+
+    # Releases (album requests) #
+
+    def find_release(self, artist: str, album: str) -> dict | None:
+        """Best official release for an artist + album title: {release_id, title, artist, date, track_count} or None."""
+        if not album:
+            return None
+
+        query = f'release:"{_lucene_escape(album)}"'
+
+        if artist:
+            query += f' AND artist:"{_lucene_escape(artist)}"'
+
+        data = self.get("release", query=query, limit=15)
+        best, best_key = None, None
+
+        for release in data.get("releases") or []:
+            credit = " ".join(c.get("name") or c.get("artist", {}).get("name", "") for c in release.get("artist-credit") or [])
+            identity = 0.6 * token_overlap(album, release.get("title")) + (0.4 * token_overlap(artist, credit) if artist else 0.4)
+
+            if identity < 0.55:
+                continue
+
+            group = release.get("release-group") or {}
+            key = (
+                round(identity, 2),
+                (release.get("status") or "").lower() == "official",
+                (group.get("primary-type") or "").lower() == "album",
+                not (group.get("secondary-types") or []),
+                -(self._release_track_count(release) or 999),   # fewer tracks = the plain edition, not the deluxe one
+                release.get("date") and -int(release["date"][:4]),
+                (release.get("score") or 0),
+            )
+
+            if best_key is None or key > best_key:
+                best, best_key = release, key
+
+        if best is None:
+            return None
+
+        credit = " ".join(c.get("name") or c.get("artist", {}).get("name", "") for c in best.get("artist-credit") or [])
+        return {"release_id": best["id"], "title": best.get("title"), "artist": credit or artist, "date": best.get("date"),
+                "track_count": self._release_track_count(best)}
+
+    def release_tracks(self, release_id: str) -> list[dict]:
+        """Tracklist of a release in order: [{position, title, artist, recording_id, duration_ms}]."""
+        data = self.get(f"release/{urllib.parse.quote(release_id)}", inc="recordings+artist-credits+media")
+        album_credit = " ".join(c.get("name") or c.get("artist", {}).get("name", "") for c in data.get("artist-credit") or [])
+        tracks = []
+
+        for medium in sorted(data.get("media") or [], key=lambda m: m.get("position") or 0):
+            for track in sorted(medium.get("tracks") or [], key=lambda t: t.get("position") or 0):
+                recording = track.get("recording") or {}
+                credit = " ".join(c.get("name") or c.get("artist", {}).get("name", "")
+                                  for c in (track.get("artist-credit") or recording.get("artist-credit") or []))
+                tracks.append({
+                    "position": len(tracks) + 1,
+                    "title": track.get("title") or recording.get("title") or "",
+                    "artist": credit or album_credit,
+                    "recording_id": recording.get("id"),
+                    "duration_ms": track.get("length") or recording.get("length"),
+                })
+
+        return tracks

@@ -48,16 +48,32 @@ def recording(rec_id, title, artist, length_ms, release_id=None, release_title=N
     return entry
 
 
-class FakeMusicBrainz:
-    """fetch(url, user_agent) replacement: answers recording searches and ISRC lookups from a table."""
+def release(release_id, title, artist, tracks, date="2001-01-01", status="Official", primary_type="Album", score=100):
+    """A release as the search and lookup endpoints return it; tracks = [(recording_id, title, length_ms), ...]."""
+    credit = [{"name": artist, "artist": {"id": "ar-" + release_id, "name": artist}}]
+    return {
+        "id": release_id, "title": title, "status": status, "date": date, "score": score, "artist-credit": credit,
+        "release-group": {"primary-type": primary_type, "secondary-types": []},
+        "media": [{"format": "CD", "position": 1, "track-count": len(tracks), "tracks": [
+            {"id": f"t-{rec_id}", "position": n, "number": str(n), "title": name, "length": length,
+             "recording": {"id": rec_id, "title": name, "length": length, "artist-credit": credit}}
+            for n, (rec_id, name, length) in enumerate(tracks, start=1)
+        ]}],
+    }
 
-    def __init__(self, recordings: list[dict], isrcs: dict | None = None):
+
+class FakeMusicBrainz:
+    """fetch(url, user_agent) replacement: answers recording searches, ISRC lookups, release searches and release
+    lookups from tables."""
+
+    def __init__(self, recordings: list[dict], isrcs: dict | None = None, releases: list[dict] | None = None):
         self.by_title = {}
 
         for rec in recordings:
             self.by_title.setdefault(normalize(rec["title"]), []).append(rec)
 
         self.isrcs = isrcs or {}
+        self.releases = releases or []
         self.urls: list[str] = []
 
     def __call__(self, url, user_agent):
@@ -69,6 +85,16 @@ class FakeMusicBrainz:
         if "/isrc/" in parsed.path:
             isrc = parsed.path.rsplit("/", 1)[1]
             return {"isrc": isrc, "recordings": self.isrcs.get(isrc, [])}
+
+        if parsed.path.endswith("/release"):
+            wanted = normalize(params["query"][0].split('release:"', 1)[1].split('"', 1)[0].replace("\\", ""))
+            found = [{k: v for k, v in r.items() if k != "media"} | {"media": [{"format": "CD", "track-count": len(r["media"][0]["tracks"])}]}
+                     for r in self.releases if normalize(r["title"]) == wanted]
+            return {"count": len(found), "releases": found}
+
+        if "/release/" in parsed.path:
+            release_id = parsed.path.rsplit("/", 1)[1]
+            return next((r for r in self.releases if r["id"] == release_id), {})
 
         query = params.get("query", [""])[0]
         wanted = query.split('recording:"', 1)[1].split('"', 1)[0].replace("\\", "")

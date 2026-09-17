@@ -169,6 +169,56 @@ class Database:
 
         return playlist_id
 
+    def find_playlist(self, name, source=None) -> sqlite3.Row | None:
+        """A playlist by (case-insensitive) name, optionally restricted to one source; the oldest wins."""
+        sql, params = "SELECT * FROM playlists WHERE lower(name) = lower(?)", [name]
+
+        if source:
+            sql += " AND source = ?"
+            params.append(source)
+
+        return self.conn.execute(sql + " ORDER BY id LIMIT 1", params).fetchone()
+
+    def append_tracks(self, playlist_id, tracks: list[Track]) -> list[int]:
+        """Add tracks after the playlist's last position; returns the new track ids."""
+        with self.conn:
+            self.conn.execute("BEGIN")
+            start = self.conn.execute("SELECT COALESCE(MAX(position), -1) + 1 FROM tracks WHERE playlist_id = ?",
+                                      (playlist_id,)).fetchone()[0]
+            now = utcnow()
+            ids = []
+
+            for offset, track in enumerate(tracks):
+                cursor = self.conn.execute(
+                    "INSERT INTO tracks (playlist_id, position, title, artist, album, duration_ms, duration_source, "
+                    "isrc, mb_recording_id, mb_release_id, mb_release_track_count, source_uri) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (playlist_id, start + offset, track.title, track.artist or "", track.album or "", track.duration_ms,
+                     "import" if track.duration_ms else None, track.isrc, track.mb_recording_id,
+                     track.mb_release_id, track.mb_release_track_count, track.source_uri),
+                )
+                status, local_path = ("in_library", track.local_path) if track.local_path else ("pending", None)
+                self.conn.execute(
+                    "INSERT INTO matches (track_id, status, local_path, updated_at) VALUES (?, ?, ?, ?)",
+                    (cursor.lastrowid, status, local_path, now),
+                )
+                ids.append(cursor.lastrowid)
+
+            self.conn.execute("UPDATE playlists SET track_count = (SELECT COUNT(*) FROM tracks WHERE playlist_id = ?) "
+                              "WHERE id = ?", (playlist_id, playlist_id))
+
+        return ids
+
+    def relocate(self, moves: dict) -> int:
+        """Point every match at the new path after files were moved ({old_path: new_path}); returns rows changed."""
+        changed = 0
+
+        for old, new in moves.items():
+            changed += self.conn.execute("UPDATE matches SET local_path = ?, updated_at = ? WHERE local_path = ?",
+                                         (new, utcnow(), old)).rowcount
+
+        return changed
+
     def set_playlist_jspf(self, playlist_id, jspf_path):
         self.conn.execute("UPDATE playlists SET jspf_path = ? WHERE id = ?", (str(jspf_path), playlist_id))
 

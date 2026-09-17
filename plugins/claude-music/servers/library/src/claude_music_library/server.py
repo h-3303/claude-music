@@ -7,6 +7,7 @@ Tools return compact summaries and ids; whole tracklists are never dumped unless
 import asyncio
 import functools
 import os
+import time
 
 from pathlib import Path
 from typing import Literal
@@ -22,11 +23,13 @@ from .connectors import SERVICES, ConnectorError, get_connector
 from .db import Database
 from .importers import FORMATS, import_file
 from .jspf import write_jspf
-from .library import diff_playlist, scan_library
+from .library import diff_playlist, reindex_moved
+from .library import scan_library as _scan_library
 from .m3u import write_m3u as _write_m3u
 from .matcher import MatchJob, MatchPrefs, download_id
 from .models import MATCH_STATUSES, Track
 from .musicbrainz import MusicBrainzClient, MusicBrainzError
+from .requester import expand, parse_items
 from .tidy import Tidy, TidyError
 from .troi_resolver import Troi, TroiError
 
@@ -47,9 +50,14 @@ mcp = MCPServer(
         "match_playlist -> playlist_status until the job finishes -> review_candidates -> approve -> "
         "queue_approved -> sync_downloads -> write_m3u. Playlists can also come straight from a service: "
         "connect_service('tidal') (official API, browser login) or connect_service('youtube-music', headers_raw=...), "
-        "then list_remote_playlists / import_remote_playlist; Deezer public playlists need no login. Library "
-        "housekeeping: tidy_analyse (dry run, writes a report) then tidy_apply(confirm=True) once the user has "
-        "approved the plan. Optional extras when installed: beets_import(playlist_id) hands finished downloads to "
+        "then list_remote_playlists / import_remote_playlist; Deezer public playlists need no login. When the user "
+        "simply names songs or albums they want, request_music(items) does the whole thing in one call: it adds them "
+        "to a persistent 'Requests' playlist, expands albums through MusicBrainz, matches on Soulseek and queues the "
+        "confident matches without a separate confirmation (the request is the instruction); report what it "
+        "understood right away. Library housekeeping: tidy_analyse (dry run, writes a report) then "
+        "tidy_apply(confirm=True) once the user has approved the plan; sync_downloads tidies the tracks it marks done "
+        "by itself (tags + Artist/Album/NN - Title, never deletions) unless auto_tidy is off, and tidy_new files "
+        "tracks that arrived by other routes. Optional extras when installed: beets_import(playlist_id) hands finished downloads to "
         "`beet import` (dry run first, confirm=True to import); troi_scan / troi_resolve find tracks in a "
         "MusicBrainz-tagged collection through the ListenBrainz content resolver."
     ),
@@ -285,7 +293,6 @@ async def playlist_status(playlist_id: int) -> dict:
         if job["error"]:
             result["job"]["error"] = job["error"]
         if progress.get("waiting_rate_limit_until"):
-            import time
             result["job"]["note"] = f"waiting on Soulseek search rate limit, ~{max(0, round(progress['waiting_rate_limit_until'] - time.time()))} s"
 
     return result
@@ -305,6 +312,148 @@ async def delete_playlist(playlist_id: int) -> dict:
     return {"deleted": playlist_id, "name": playlist["name"]}
 
 
+# Direct requests #
+
+REQUESTS_PLAYLIST = "Requests"
+
+
+def _request_playlist(name: str) -> tuple[int, str, bool]:
+    """The persistent request playlist with this name (created when missing): (playlist_id, name, created)."""
+    row = db().find_playlist(name, source="request")
+
+    if row is not None:
+        return row["id"], row["name"], False
+
+    playlist_id = db().add_playlist(name, "request", [], source_ref="request_music")
+    safe = "".join(c if c.isalnum() or c in " -_" else "_" for c in name).strip() or "requests"
+    jspf_path = config.playlists_dir() / f"{playlist_id:04d}-{safe}.jspf"
+    write_jspf(jspf_path, name, [], "request", "request_music")
+    db().set_playlist_jspf(playlist_id, jspf_path)
+    return playlist_id, name, True
+
+
+def _rewrite_jspf(playlist_id: int):
+    playlist = db().get_playlist(playlist_id)
+
+    if not playlist["jspf_path"]:
+        return
+
+    tracks = [Track(title=r["title"], artist=r["artist"], album=r["album"], duration_ms=r["duration_ms"], isrc=r["isrc"],
+                    source_uri=r["source_uri"], mb_recording_id=r["mb_recording_id"], mb_release_id=r["mb_release_id"],
+                    mb_release_track_count=r["mb_release_track_count"], position=r["position"],
+                    local_path=r["local_path"] if r["status"] in ("in_library", "done") else None)
+              for r in db().tracks(playlist_id)]
+    write_jspf(Path(playlist["jspf_path"]), playlist["name"], tracks, playlist["source"], playlist["source_ref"])
+
+
+@mcp.tool(annotations=NETWORK)
+@tool_errors
+async def request_music(
+    items: list[str | dict[str, str]],
+    playlist: str = REQUESTS_PLAYLIST,
+    download: bool = True,
+    min_confidence: float = 0.85,
+    prefer_formats: list[str] | None = None,
+    allow_formats: list[str] | None = None,
+    min_bitrate: int | None = None,
+    harvest_seconds: float = 10.0,
+) -> dict:
+    """Get named songs and whole albums in one go. Items: {"artist": ..., "title": ...} for a song,
+    {"artist": ..., "album": ...} for an album, or strings "Artist - Title" / "Artist - Album (album)". The items are
+    appended to a persistent request playlist (default "Requests"; it keeps growing across sessions), albums are
+    expanded to their tracklist via MusicBrainz, everything is resolved and checked against the local library, and
+    a background job then matches the missing tracks on Soulseek and queues every match at or above min_confidence
+    (whole folders in album mode) without a further confirmation: the request itself is the go-ahead. The result
+    says what was understood (for albums: the release picked and its track count) and how many tracks are being
+    fetched; poll playlist_status for the job, then sync_downloads. Doubtful matches stay in 'candidates' for
+    review_candidates / approve. download=False only prepares the playlist."""
+    parsed = parse_items(items)
+    playlist_id, name, created = _request_playlist(playlist)
+    active = State.jobs.get(playlist_id)
+
+    if active and not active.done():
+        raise ValueError(f"a job is already running for playlist {playlist_id} ({name}); wait for it or use another playlist name")
+
+    client = _musicbrainz()
+    tracks, understood = await asyncio.to_thread(expand, client, parsed)
+    ids = db().append_tracks(playlist_id, tracks) if tracks else []
+    unresolved = []
+
+    if ids:
+        rows = [db().track(i) for i in ids if not db().track(i)["mb_recording_id"]]
+        _, unresolved = await asyncio.to_thread(_resolve_rows, client, rows)
+        root = config.music_dir()
+
+        if root.is_dir():
+            await asyncio.to_thread(scan_library_sync, root, False)
+            diff_playlist(db(), playlist_id)
+
+        _rewrite_jspf(playlist_id)
+
+    rows = [db().track(i) for i in ids]
+    pending = [r["id"] for r in rows if r["status"] == "pending"]
+    owned = [r for r in rows if r["status"] == "in_library"]
+    result = {
+        "playlist_id": playlist_id, "playlist": name, "created": created, "understood": understood,
+        "added": len(ids), "already_in_library": len(owned), "to_fetch": len(pending),
+        "unresolved": [{"artist": u["artist"], "title": u["title"]} for u in unresolved][:25],
+        "musicbrainz_requests": client.requests_made,
+    }
+
+    if not download or not pending:
+        result["note"] = "nothing to fetch" if not pending else "playlist prepared; run match_playlist when ready"
+        return result
+
+    await bridge().status()  # fail early if Nicotine+ is unreachable
+    prefs = _match_prefs(prefer_formats, allow_formats, min_bitrate, "auto", None, harvest_seconds, 3.0)
+    job_id = db().create_job(playlist_id, "request", {"total": len(pending), "phase": "matching"})
+    State.jobs[playlist_id] = asyncio.create_task(_request_job(job_id, playlist_id, pending, prefs, min_confidence))
+    result.update({"job_id": job_id, "min_confidence": min_confidence,
+                   "note": "matching and queueing in the background; poll playlist_status, then sync_downloads"})
+    return result
+
+
+async def _request_job(job_id, playlist_id, track_ids, prefs, min_confidence):
+    """Match the requested tracks, auto-approve the confident candidates, queue them. State lives in the job row."""
+    job = MatchJob(db(), bridge(), prefs)
+    await job.run(job_id, playlist_id, track_ids)
+
+    if db().job(job_id)["status"] != "finished":
+        return
+
+    progress = dict(job.progress, phase="queueing")
+    db().update_job(job_id, status="running", progress=progress)
+
+    try:
+        for_review, not_found = 0, 0
+
+        for track_id in track_ids:
+            row = db().track(track_id)
+
+            if row["status"] == "not_found":
+                not_found += 1
+            elif row["status"] == "candidates":
+                candidates = db().candidates(row)
+
+                if candidates and (row["confidence"] or 0) >= min_confidence:
+                    db().set_match(track_id, "approved", confidence=candidates[0]["confidence"])
+                else:
+                    for_review += 1
+
+        files, folders = _queue_plan(playlist_id, track_ids)
+        summary = _queue_summary(playlist_id, files, folders)
+        summary.update(await _queue(files, folders))
+        progress.update(phase="finished", queued=summary["queued"], total_mb=summary["total_mb"], users=summary["users"],
+                        folders=summary["folders"], for_review=for_review, not_found=not_found,
+                        queue_errors=summary["errors"][:20])
+        db().update_job(job_id, status="finished", progress=progress)
+    except asyncio.CancelledError:
+        db().update_job(job_id, status="cancelled", progress=progress)
+        raise
+    except Exception as error:  # noqa: BLE001 - recorded on the job, never crashes the server
+        db().update_job(job_id, status="failed", progress=progress, error=f"{type(error).__name__}: {error}")
+
+
 # MusicBrainz #
 
 @mcp.tool(annotations=NETWORK)
@@ -322,36 +471,42 @@ async def resolve_playlist(playlist_id: int, only_unresolved: bool = True, limit
     if limit:
         rows = rows[:limit]
 
-    client = MusicBrainzClient(db(), config.user_agent(), fetch=State.mb_fetch, **({"sleep": State.mb_sleep} if State.mb_sleep else {}))
-    resolved, unresolved = 0, []
-
-    def work():
-        nonlocal resolved
-
-        for row in rows:
-            hit = client.resolve(row["title"], row["artist"], row["album"], row["duration_ms"], row["isrc"])
-
-            if hit is None:
-                unresolved.append({"track_id": row["id"], "position": row["position"] + 1, "artist": row["artist"],
-                                   "title": row["title"]})
-                continue
-
-            fields = {"mb_recording_id": hit["recording_id"], "mb_release_id": hit["release_id"],
-                      "mb_release_track_count": hit["release_track_count"]}
-
-            if not row["duration_ms"] and hit["duration_ms"]:
-                fields["duration_ms"] = hit["duration_ms"]
-                fields["duration_source"] = "musicbrainz"
-
-            db().update_track(row["id"], **fields)
-            resolved += 1
-
-    await asyncio.to_thread(work)
+    client = _musicbrainz()
+    resolved, unresolved = await asyncio.to_thread(_resolve_rows, client, rows)
     return {
         "playlist_id": playlist_id, "attempted": len(rows), "resolved": resolved, "unresolved": len(unresolved),
         "requests": client.requests_made, "cache_hits": client.cache_hits,
         "unresolved_tracks": unresolved[:25],
     }
+
+
+def _musicbrainz() -> MusicBrainzClient:
+    return MusicBrainzClient(db(), config.user_agent(), fetch=State.mb_fetch, **({"sleep": State.mb_sleep} if State.mb_sleep else {}))
+
+
+def _resolve_rows(client, rows) -> tuple[int, list]:
+    """Canonicalise track rows against MusicBrainz (blocking; run in a thread). Returns (resolved, unresolved)."""
+    resolved, unresolved = 0, []
+
+    for row in rows:
+        hit = client.resolve(row["title"], row["artist"], row["album"], row["duration_ms"], row["isrc"])
+
+        if hit is None:
+            unresolved.append({"track_id": row["id"], "position": row["position"] + 1, "artist": row["artist"],
+                               "title": row["title"]})
+            continue
+
+        fields = {"mb_recording_id": hit["recording_id"], "mb_release_id": hit["release_id"],
+                  "mb_release_track_count": hit["release_track_count"]}
+
+        if not row["duration_ms"] and hit["duration_ms"]:
+            fields["duration_ms"] = hit["duration_ms"]
+            fields["duration_source"] = "musicbrainz"
+
+        db().update_track(row["id"], **fields)
+        resolved += 1
+
+    return resolved, unresolved
 
 
 # Local library #
@@ -364,9 +519,8 @@ async def scan_library(music_dir: str | None = None, rescan: bool = False) -> di
     return await asyncio.to_thread(scan_library_sync, root, rescan)
 
 
-def scan_library_sync(root, rescan):
-    from .library import scan_library as _scan
-    return _scan(db(), root, rescan=rescan)
+def scan_library_sync(root, rescan, collect_new=False):
+    return _scan_library(db(), root, rescan=rescan, collect_new=collect_new)
 
 
 @mcp.tool(annotations=WRITE_LOCAL)
@@ -406,6 +560,16 @@ async def match_playlist(
         raise ValueError(f"a matching job is already running for playlist {playlist_id}")
 
     await bridge().status()  # fail early if Nicotine+ is unreachable
+    prefs = _match_prefs(prefer_formats, allow_formats, min_bitrate, album_mode, max_tracks, harvest_seconds, duration_tolerance_s)
+    pending = len([r for r in db().tracks(playlist_id, statuses=["pending", "searching"])])
+    job_id = db().create_job(playlist_id, "match", {"total": pending})
+    job = MatchJob(db(), bridge(), prefs)
+    State.jobs[playlist_id] = asyncio.create_task(job.run(job_id, playlist_id))
+    return {"job_id": job_id, "playlist_id": playlist_id, "tracks_to_match": pending,
+            "note": "poll playlist_status; then review_candidates"}
+
+
+def _match_prefs(prefer_formats, allow_formats, min_bitrate, album_mode, max_tracks, harvest_seconds, duration_tolerance_s):
     prefs = MatchPrefs(album_mode=album_mode, max_tracks=max_tracks, harvest_seconds=max(0.1, harvest_seconds),
                        min_bitrate=min_bitrate, duration_tolerance_s=duration_tolerance_s)
 
@@ -415,12 +579,7 @@ async def match_playlist(
         prefs.allow_formats = [f.lower().lstrip(".") for f in allow_formats]
 
     prefs.poll_interval_s = min(prefs.poll_interval_s, prefs.harvest_seconds)
-    pending = len([r for r in db().tracks(playlist_id, statuses=["pending", "searching"])])
-    job_id = db().create_job(playlist_id, "match", {"total": pending})
-    job = MatchJob(db(), bridge(), prefs)
-    State.jobs[playlist_id] = asyncio.create_task(job.run(job_id, playlist_id))
-    return {"job_id": job_id, "playlist_id": playlist_id, "tracks_to_match": pending,
-            "note": "poll playlist_status; then review_candidates"}
+    return prefs
 
 
 @mcp.tool(annotations=WRITE_LOCAL)
@@ -520,8 +679,12 @@ async def skip_tracks(track_ids: list[int], reason: str = "skipped by user") -> 
     return {"skipped": len(track_ids)}
 
 
-def _queue_plan(playlist_id):
+def _queue_plan(playlist_id, track_ids=None):
     rows = db().tracks(playlist_id, statuses=["approved"])
+
+    if track_ids is not None:
+        rows = [r for r in rows if r["id"] in set(track_ids)]
+
     files, folders = [], {}
 
     for row in rows:
@@ -551,18 +714,28 @@ async def queue_approved(playlist_id: int, confirm: bool = False) -> dict:
     Always show these totals to the user and wait for their explicit OK before confirming."""
     db().get_playlist(playlist_id)
     files, folders = _queue_plan(playlist_id)
-    users = sorted({c["user"] for _, c in files} | {f["user"] for f in folders.values()})
-    total_bytes = sum(c.get("size") or 0 for _, c in files) + sum(f["size"] for f in folders.values())
-    summary = {
-        "playlist_id": playlist_id, "tracks": len(files) + sum(len(f["tracks"]) for f in folders.values()),
-        "single_files": len(files), "folders": len(folders), "total_mb": round(total_bytes / 1048576, 1),
-        "users": users,
-    }
+    summary = _queue_summary(playlist_id, files, folders)
 
     if not confirm:
         summary["note"] = "nothing queued; call again with confirm=True after the user agrees"
         return summary
 
+    summary.update(await _queue(files, folders))
+    return summary
+
+
+def _queue_summary(playlist_id, files, folders) -> dict:
+    users = sorted({c["user"] for _, c in files} | {f["user"] for f in folders.values()})
+    total_bytes = sum(c.get("size") or 0 for _, c in files) + sum(f["size"] for f in folders.values())
+    return {
+        "playlist_id": playlist_id, "tracks": len(files) + sum(len(f["tracks"]) for f in folders.values()),
+        "single_files": len(files), "folders": len(folders), "total_mb": round(total_bytes / 1048576, 1),
+        "users": users,
+    }
+
+
+async def _queue(files, folders) -> dict:
+    """Queue single files and whole folders in Nicotine+; marks rows queued/failed. Returns {queued, errors}."""
     queued, errors = 0, []
 
     for row, chosen in files:
@@ -592,8 +765,7 @@ async def queue_approved(playlist_id: int, confirm: bool = False) -> dict:
                            last_error=None)
             queued += 1
 
-    summary.update({"queued": queued, "errors": errors})
-    return summary
+    return {"queued": queued, "errors": errors}
 
 
 async def _next_candidate(row, failed_user, job_failures):
@@ -631,6 +803,7 @@ async def sync_downloads(playlist_id: int, retry: bool = True) -> dict:
     job_id = job["id"] if job else None
     failures = db().user_failures(job_id) if job_id else {}
     changes = {"done": 0, "downloading": 0, "queued": 0, "failed": 0, "retried": 0, "missing": 0}
+    finished: list[str] = []
 
     for row in rows:
         transfer = by_id.get(row["download_id"]) if row["download_id"] else None
@@ -645,6 +818,7 @@ async def sync_downloads(playlist_id: int, retry: bool = True) -> dict:
             local = os.path.join(transfer["folder"] or "", transfer["path"].rpartition("\\")[2])
             db().set_match(row["id"], "done", local_path=local, last_error=None)
             changes["done"] += 1
+            finished.append(local)
         elif status == "Transferring":
             db().set_match(row["id"], "downloading")
             changes["downloading"] += 1
@@ -666,8 +840,19 @@ async def sync_downloads(playlist_id: int, retry: bool = True) -> dict:
             db().set_match(row["id"], "queued")
             changes["queued"] += 1
 
-    return {"playlist_id": playlist_id, "checked": len(rows), **changes,
-            "counts": {k: v for k, v in db().status_counts(playlist_id).items() if v}}
+    result = {"playlist_id": playlist_id, "checked": len(rows), **changes,
+              "counts": {k: v for k, v in db().status_counts(playlist_id).items() if v}}
+
+    if finished and config.auto_tidy():
+        try:
+            tidied = await _tidy_files(finished)
+        except (TidyError, FileNotFoundError, OSError) as error:
+            result["tidy_error"] = f"{error}; the files are where Nicotine+ put them, run tidy_new later"
+        else:
+            if tidied:
+                result["tidied"] = tidied
+
+    return result
 
 
 @mcp.tool(annotations=WRITE_LOCAL)
@@ -721,6 +906,58 @@ async def tidy_apply(music_dir: str | None = None, confirm: bool = False, force:
 
     result = await asyncio.to_thread(lambda: Tidy(root).apply(force=force))
     result["applied"] = True
+    return result
+
+
+def _under(root: Path, path: str) -> bool:
+    try:
+        Path(path).resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+async def _tidy_files(paths, music_dir: Path | None = None) -> dict | None:
+    """Scoped tidy of just-arrived files, then fix up match rows and the library index. None when nothing applies."""
+    root = music_dir or config.music_dir()
+    inside = [p for p in paths if p and Path(p).is_file() and _under(root, p)]
+
+    if not inside:
+        return None
+
+    result = await asyncio.to_thread(lambda: Tidy(root).apply_new(inside))
+    moves = result.pop("moves")
+    result["relocated_tracks"] = db().relocate(moves) if moves else 0
+    result["reindexed"] = reindex_moved(db(), moves) if moves else 0
+    result["moved_to"] = sorted({os.path.relpath(os.path.dirname(new), root) for new in moves.values()})[:50]
+    result["auto_tidy"] = config.auto_tidy()
+    return result
+
+
+@mcp.tool(annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True, open_world_hint=False))
+@tool_errors
+async def tidy_new(paths: list[str] | None = None, music_dir: str | None = None) -> dict:
+    """Tidy only newly arrived tracks: normalise their tags and file them as Artist/Album/NN - Title, touching nothing
+    else. Never deletes; files it cannot place (missing tags, lossy copy of an owned FLAC, target exists) are held in
+    place and listed. sync_downloads does this by itself for the tracks it marks done (unless auto_tidy is off); call
+    this for tracks that arrived any other way. Without paths, an incremental library scan decides what is new; files
+    written in the last few minutes are left to settle."""
+    root = Path(music_dir).expanduser() if music_dir else config.music_dir()
+
+    if paths:
+        candidates, settling = [str(Path(p).expanduser()) for p in paths], []
+    else:
+        scanned = await asyncio.to_thread(scan_library_sync, root, False, True)
+        candidates, settling = [], []
+        cutoff = time.time() - Tidy(root).settle_seconds
+
+        for path in scanned["new_paths"]:
+            (settling if os.path.getmtime(path) > cutoff else candidates).append(path)
+
+    result = await _tidy_files(candidates, root) or {"root": str(root), "requested": 0, "moved": 0, "held": []}
+    result["settling"] = settling[:50]
+    result["note"] = ("nothing new to tidy" if not candidates else
+                      "only the listed files were touched; deletions and open questions wait for /music-tidy")
     return result
 
 
@@ -840,7 +1077,8 @@ async def library_status() -> dict:
     """Health: data dir, database version, indexed files, and whether the Nicotine+ bridge answers."""
     result = {"version": __version__, "data_dir": str(config.data_dir()), "music_dir": str(config.music_dir()),
               "schema_version": db().schema_version, "library_files": db().library_count(),
-              "playlists": len(db().list_playlists()), "bridge_socket": bridge().socket_path}
+              "playlists": len(db().list_playlists()), "bridge_socket": bridge().socket_path,
+              "auto_tidy": config.auto_tidy()}
 
     try:
         status = await bridge().status()

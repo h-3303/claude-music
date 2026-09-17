@@ -251,10 +251,15 @@ class MatchJob:
         self.progress.update(updates)
         self.db.update_job(self.job_id, status=status, progress=self.progress)
 
-    async def run(self, job_id: int, playlist_id: int):
+    async def run(self, job_id: int, playlist_id: int, track_ids=None):
+        """Match the playlist's pending tracks (or just track_ids); the job row is updated as it goes."""
         self.job_id = job_id
         rows = self.db.tracks(playlist_id, statuses=["pending", "searching", "not_found"])
         rows = [r for r in rows if r["status"] != "not_found" or r["attempts"] < self.prefs.max_attempts]
+
+        if track_ids is not None:
+            wanted = set(track_ids)
+            rows = [r for r in rows if r["id"] in wanted]
 
         if self.prefs.max_tracks:
             rows = rows[: self.prefs.max_tracks]
