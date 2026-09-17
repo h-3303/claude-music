@@ -32,7 +32,11 @@ if command -v claude >/dev/null; then
     claude plugin marketplace update claude-music >/dev/null
   fi
 
-  claude plugin install claude-music@claude-music
+  if claude plugin list 2>/dev/null | grep -q 'claude-music@claude-music'; then
+    claude plugin update claude-music@claude-music   # already installed: pick up this checkout's version
+  else
+    claude plugin install claude-music@claude-music
+  fi
   # Build the library server's venv now (it lives in the plugin's persistent data dir)
   DATA_DIR=~/.claude/plugins/data/claude-music@claude-music
   mkdir -p "$DATA_DIR"
@@ -44,4 +48,4 @@ fi
 
 echo
 echo "Now: Nicotine+ → Preferences → Plugins → enable plugins → tick 'MCP Bridge'."
-echo "Then in Claude Code: /plugin to check 'claude-music', and /playlist-sync to start."
+echo "Then in Claude Code: /plugin to check 'claude-music', /playlist-sync to fetch a playlist, /music-tidy to file it."
