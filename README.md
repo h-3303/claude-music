@@ -1,5 +1,12 @@
 # claude-music
 
+> **No longer updated.** Development continues in **[flacli](https://github.com/h-3303/flacli)**
+> (site: [flacli.vercel.app](https://flacli.vercel.app)): the same engine, model-agnostic, as a command line
+> and two MCP servers, with a thin Claude Code plugin over it that keeps the two skills, the matcher agent,
+> the health check and the download monitor. To move: `/plugin uninstall claude-music@claude-music`, then
+> `git clone https://github.com/h-3303/flacli && cd flacli && ./install.sh`. The Nicotine+ bridge plugin is the
+> same and needs no change. This repository and its site stay up as they were on 2026-09-17.
+
 **Site:** https://claude-music-liard.vercel.app · **Repo:** https://github.com/h-3303/claude-music ·
 **Install:** `/plugin marketplace add h-3303/claude-music` then `/plugin install claude-music@claude-music`
 

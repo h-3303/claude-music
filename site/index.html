@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>claude-music · a Claude Code plugin for playlists, Soulseek and a tidy library</title>
-<meta name="description" content="A Claude Code plugin that gets a streaming playlist onto disk: MusicBrainz, your local library, and the rest from Soulseek through your own Nicotine+. Then tidies the library: tags, duplicates, Artist/Album/NN - Title. Nothing is downloaded or deleted without your yes. Install: /plugin marketplace add h-3303/claude-music">
+<meta name="description" content="No longer updated; continued as flacli (flacli.vercel.app). A Claude Code plugin that gets a streaming playlist onto disk: MusicBrainz, your local library, and the rest from Soulseek through your own Nicotine+. Then tidies the library: tags, duplicates, Artist/Album/NN - Title. Nothing is downloaded or deleted without your yes. Install: /plugin marketplace add h-3303/claude-music">
 <link rel="canonical" href="https://claude-music-liard.vercel.app/">
 <link rel="alternate" type="text/plain" href="https://claude-music-liard.vercel.app/llms.txt" title="llms.txt">
 <meta property="og:type" content="website">
@@ -81,6 +81,17 @@
       <div class="dtw-masthead__tagline">PLAYLISTS · MUSICBRAINZ · SOULSEEK · YOUR OWN NICOTINE+</div>
     </div>
     <span class="dtw-folio" style="transform: rotate(-4deg); margin-top: 6px">No. 1 · MMXXVI</span>
+  </div>
+
+  <div class="dtw-pasted-box" style="margin-top: 22px; transform: rotate(0.5deg); border: 1px solid var(--dtw-toner)">
+    <div class="dtw-bar-heading dtw-bar-heading--typewriter" style="margin: -4px 0 8px">NO LONGER UPDATED · SEE FLACLI</div>
+    <p class="dtw-typewriter" style="font-size: 11.5px; margin: 0">
+      Development continues in <a href="https://flacli.vercel.app/">flacli</a>: the same engine, made model-agnostic, as
+      a command line and two MCP servers, with a thin Claude Code plugin over it that keeps these skills. This page and
+      the repository stay as they were on 17 September 2026. Moving over is
+      <code>/plugin uninstall claude-music@claude-music</code>, then <code>git clone https://github.com/h-3303/flacli</code>
+      and its <code>install.sh</code>; the Nicotine+ bridge is the same.
+    </p>
   </div>
 
   <div class="stack" style="margin-top: 26px">
@@ -231,7 +242,7 @@ bash ~/.claude/plugins/marketplaces/claude-music/install.sh</pre>
     </div>
 
     <p class="dtw-typewriter dtw-typewriter--on-black dtw-typewriter--tracked dtw-typewriter--caps" style="font-size: 10px; margin-top: 30px; text-align: center">
-      <a href="https://github.com/h-3303/claude-music">github.com/h-3303/claude-music</a> · <a href="llms.txt">llms.txt</a> · GPL-3.0-or-later
+      <a href="https://github.com/h-3303/claude-music">github.com/h-3303/claude-music</a> · <a href="llms.txt">llms.txt</a> · continued as <a href="https://flacli.vercel.app/">flacli</a> · GPL-3.0-or-later
     </p>
   </div>
 
