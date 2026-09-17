@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "claude-music",
   "displayName": "claude-music",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Import streaming playlists (TIDAL, Deezer, YouTube Music, or exported files), match them against your local library, fetch the missing tracks through your running Nicotine+ (Soulseek) client, and tidy the library afterwards: tags, duplicates, Artist/Album/NN - Title.",
   "author": {
     "name": "h-3303",
@@ -25,7 +25,9 @@
     "claude-code",
     "tidal",
     "deezer",
-    "youtube-music"
+    "youtube-music",
+    "beets",
+    "listenbrainz"
   ],
   "userConfig": {
     "music_dir": {

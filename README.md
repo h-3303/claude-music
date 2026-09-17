@@ -85,6 +85,8 @@ Say `/playlist-sync` or just hand Claude a playlist file. The skill walks throug
 6. `queue_approved` — shows track count, size and users; only `confirm=True` queues anything.
 7. `sync_downloads` — maps transfers to done/failed, retries failed ones from the next candidate.
 8. `write_m3u` — original order, missing tracks reported rather than dropped.
+9. Optionally `beets_import` (hand the new files to beets) or `/music-tidy`; see
+   [After the downloads](#after-the-downloads).
 
 State lives in `~/.claude/plugins/data/claude-music@claude-music/state.db`; every step is resumable.
 
@@ -131,6 +133,30 @@ FLAC, MP3, M4A, Ogg and Opus are handled. The same planner runs from a shell as
   the steps; `connect_service("youtube-music", headers_raw=...)` stores them). Titles, artists, albums and
   durations only; MusicBrainz fills in the rest. It breaks when YouTube changes its pages: update
   `ytmusicapi` (`uv sync` in `servers/library`) or reconnect.
+
+### After the downloads
+
+Three optional pieces, each used only when its tool is installed:
+
+- **beets.** `beets_import(playlist_id)` groups a playlist's finished downloads by folder and runs
+  `beet import --pretend` on each: a folder where one MusicBrainz release dominates becomes an album import
+  with `--search-id <release id>`, anything else singletons with the recording ids as hints. The plan
+  (folders, files, exact commands) comes back for approval; only `beets_import(..., confirm=True)` imports,
+  in quiet mode, with skips logged to `<data>/beets-import.log`. Copy versus move follows your beets config
+  (`move=True` forces a move); afterwards each track's path is updated to where beets put it so `write_m3u`
+  still works. `beets_status` shows the config path, library directory and import settings. beets and
+  `music-tidy` are alternatives: use one or the other on a given folder.
+- **Troi (ListenBrainz content resolver).** For a MusicBrainz-tagged collection (Picard, beets),
+  `troi_scan()` indexes it into `<data>/troi.db` and `troi_resolve(playlist_id)` finds the still-missing
+  tracks by recording id, then fuzzy artist + title, marking hits `in_library` before anything is searched
+  on Soulseek. Install it in its own environment: `pipx install troi && pipx inject troi nmslib` (without
+  nmslib Troi matches nothing, not even exact ids; it also pins an older mutagen than the library server
+  uses, so it cannot share the plugin's venv).
+- **Download monitor.** An experimental plugin monitor starts the first time `/playlist-sync` runs in a
+  session and polls the bridge every 20 s. It prints one line when a transfer finishes or fails (naming
+  the playlist when it is one of ours) and one line when nothing is left in progress, so Claude knows to
+  call `sync_downloads` without being asked. Silent otherwise; needs no configuration (a custom bridge
+  socket is picked up from `<data>/bridge_socket`, which the library server writes).
 
 ### Spotify
 
@@ -213,5 +239,5 @@ claude plugin validate plugins/claude-music --strict
 
 Layout: `nicotine-plugin/mcp_bridge` (Nicotine+ plugin, stdlib only), `plugins/claude-music`
 (the Claude Code plugin: manifest, `.mcp.json`, `servers/nicotine_mcp.py`, `servers/library/` with the
-service connectors under `connectors/`, the `playlist-sync` and `music-tidy` skills, agent, hook), `tests/`, `docs/ROADMAP.md`, `site/` (the static site, deployed to
+service connectors under `connectors/`, `beets.py`, `troi_resolver.py`, the `playlist-sync` and `music-tidy` skills, agent, hook, `monitors/`), `tests/`, `docs/ROADMAP.md`, `site/` (the static site, deployed to
 Vercel from that folder). Licence: GPL-3.0-or-later.

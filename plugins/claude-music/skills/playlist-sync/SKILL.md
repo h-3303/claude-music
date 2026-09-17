@@ -29,7 +29,9 @@ calls are MusicBrainz lookups and Soulseek traffic through the user's own Nicoti
    Spotify exports no durations); this fills in what it can. Runs at one request per second, so a 300-track playlist takes a few minutes — say so up front.
    Show the unresolved tracks; they can still be matched, just with less certainty.
 3. **Library.** `scan_library()` once per session (incremental afterwards), then
-   `diff_library(playlist_id)`. Report how many tracks are already owned.
+   `diff_library(playlist_id)`. Report how many tracks are already owned. If `troi_status()` says Troi is
+   installed and the collection is MusicBrainz-tagged, `troi_resolve(playlist_id)` afterwards catches
+   tracks the plain diff missed (`troi_scan()` first, once, to index the collection).
 4. **Match.** `match_playlist(playlist_id, ...)` starts a background job. Poll `playlist_status`
    every 20–30 s (each track needs a Soulseek search and ~10 s harvesting; a 100-track playlist is
    several minutes). If the status says it is waiting on the rate limit, wait — do not work around it.
@@ -42,8 +44,14 @@ calls are MusicBrainz lookups and Soulseek traffic through the user's own Nicoti
    total size and user list, and wait for their explicit OK. Only then `queue_approved(confirm=True)`.
 8. **Sync.** `sync_downloads(playlist_id)` after a while (and again later); it maps transfers to
    done/failed and retries failed ones from the next candidate. Use the `nicotine` server's
-   `list_downloads` for detail.
+   `list_downloads` for detail. A download monitor starts with this skill and posts one line per finished
+   or failed transfer, and one when nothing is left in progress: that is the cue to sync, not a reason to
+   poll in a loop.
 9. **Write.** `write_m3u(playlist_id)`. Tell the user which tracks are still missing.
+10. **File.** If `beets_status()` says beets is installed, offer `beets_import(playlist_id)`: show its
+    dry-run plan (folders, files, commands, copy or move per the beets config) and only after a yes call
+    `beets_import(playlist_id, confirm=True)`. Otherwise offer `/music-tidy`. Never run both on the same
+    folder.
 
 ## Guardrails
 
@@ -59,6 +67,8 @@ calls are MusicBrainz lookups and Soulseek traffic through the user's own Nicoti
   `min_bitrate` explicitly.
 - If the bridge is unreachable, tell the user to start Nicotine+ and enable the MCP Bridge plugin
   (Preferences → Plugins). Do not retry in a loop.
+- `beets_import(confirm=True)` and `tidy_apply(confirm=True)` both move files: the dry-run plan must be
+  shown and approved in the same conversation first, every time.
 - Service tokens and cookies stay in 0600 files under the plugin data dir. Never echo `headers_raw`,
   tokens or cookie values back into the conversation, and never write them anywhere else.
 - Spotify's API is deliberately not connected (its developer terms forbid feeding API data to an AI

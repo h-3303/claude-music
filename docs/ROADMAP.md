@@ -192,10 +192,13 @@ Keep every v1 method and response shape working; add fields only. Bump `PROTOCOL
   - Deezer: `GET /playlist/{id}` + `/playlist/{id}/tracks?index=&limit=100` following `next`; rows carry `isrc` and `duration` (seconds). Quota errors (`code` 4) back off.
   - YouTube Music: `ytmusicapi>=1.8` is a dependency of the library server; the connector imports it lazily, reports its version, wraps every failure. `get_library_playlists(limit=None)` / `get_playlist(id, limit=None)`; `LM` is Liked Music.
 
-**Phase 3 — finishing**
+**Phase 3 — finishing** — *done 2026-09-17 (v0.4.0)*
 - Optional `beets` integration: detect `beet`, run `beet import` on completed album folders with MusicBrainz IDs as hints. Never move files without a dry-run summary first.
+  - `beets.py` + tools `beets_status`, `beets_import(playlist_id, confirm, move)`. Album folder = one release id on ≥ 60 % (and ≥ 2) of the tracks → `beet import -q --search-id <release>`; otherwise `-s` with the recording ids. Dry run is `--pretend`; the real import logs skips with `-l <data>/beets-import.log` and never passes `-m` unless move=True. After import, `beet ls -f '$path' mb_trackid:<id>` relocates each track's `local_path`.
 - Download-completion monitor (experimental component) that polls the bridge and emits one line per finished item.
+  - `monitors/monitors.json` (`when: on-skill-invoke:playlist-sync`) runs `monitors/downloads.py` (stdlib). It seeds silently, then prints finished / failed transitions and one "nothing in progress" line; it looks the download id up read-only in `state.db` to name the playlist. Monitors cannot read user config, so the library server writes a custom `NICOTINE_MCP_SOCKET` to `<data>/bridge_socket` at startup.
 - Optional Troi resolver if my library is MusicBrainz-tagged.
+  - `troi_resolver.py` + tools `troi_status`, `troi_scan`, `troi_resolve`. Facts checked 2026-09-17 against troi 2026.9.1.0: `troi db create -d <db>`, `troi db scan -d <db> [-f] <dir>`, `troi resolve -d <db> -t <0..1> -m <out.m3u> -y -q <in.jspf>`; every JSPF track must carry the `https://musicbrainz.org/doc/jspf#track` extension or Troi crashes; identifiers may be a list; output is an M3U (`#EXTINF 0,<title>` + path) in playlist order, which is mapped back by title. **Without nmslib nothing resolves, not even exact MBIDs** (the fuzzy index returns an empty list and the MBID hits are dropped with it). troi pins `mutagen==1.46.0`, so it lives in its own pipx env, not the library venv.
 - Marketplace polish and versioning — *discoverability, topics, awesome-list PRs and the marketplace install route were done 2026-09-17 (v0.2.1); keep bumping both manifests on every release.*
 
 **Phase 4 — optional Spotify API connector (only if I explicitly ask)**

@@ -12,7 +12,7 @@
     {
       "name": "claude-music",
       "description": "Import playlists from TIDAL, Deezer, YouTube Music or an export file, match them against your local library, fetch the missing tracks through Nicotine+ (Soulseek) with your approval, write an M3U, then tidy the library: tags, duplicates, Artist/Album/NN - Title.",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "source": "./plugins/claude-music",
       "homepage": "https://claude-music-liard.vercel.app",
       "repository": "https://github.com/h-3303/claude-music",
@@ -32,7 +32,9 @@
         "mcp",
         "tidal",
         "deezer",
-        "youtube-music"
+        "youtube-music",
+        "beets",
+        "listenbrainz"
       ]
     }
   ]
