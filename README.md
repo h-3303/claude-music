@@ -1,5 +1,7 @@
 # claude-music
 
+**Site:** https://claude-music-liard.vercel.app · **Repo:** https://github.com/h-3303/claude-music
+
 A Claude Code plugin that gets a streaming playlist onto disk: import the playlist file, canonicalise
 it against MusicBrainz, see what you already have, fetch the rest from Soulseek through your own running
 Nicotine+ (one identity, your shares intact), and write an M3U in the original order. Nothing is
@@ -20,7 +22,7 @@ Tested against Nicotine+ 3.3.10, 3.3.11 and master (3.4.0.dev2) with MCP Python 
 
 ```bash
 sudo pacman -S --needed nicotine+ uv          # Arch; any distro with Nicotine+ 3.3+ and uv works
-git clone <this repo> ~/src/claude-music && cd ~/src/claude-music
+git clone https://github.com/h-3303/claude-music ~/src/claude-music && cd ~/src/claude-music
 ./install.sh
 ```
 
@@ -141,4 +143,4 @@ claude plugin validate plugins/claude-music --strict
 
 Layout: `nicotine-plugin/mcp_bridge` (Nicotine+ plugin, stdlib only), `plugins/claude-music`
 (the Claude Code plugin: manifest, `.mcp.json`, `servers/nicotine_mcp.py`, `servers/library/`, skill,
-agent, hook), `tests/`, `docs/ROADMAP.md`. Licence: GPL-3.0-or-later.
+agent, hook), `tests/`, `docs/ROADMAP.md`, `site/` (the static site, deployed to Vercel from that folder). Licence: GPL-3.0-or-later.
