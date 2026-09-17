@@ -25,6 +25,7 @@ from .m3u import write_m3u as _write_m3u
 from .matcher import MatchJob, MatchPrefs, download_id
 from .models import MATCH_STATUSES, Track
 from .musicbrainz import MusicBrainzClient, MusicBrainzError
+from .tidy import Tidy, TidyError
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, open_world_hint=False)
 WRITE_LOCAL = ToolAnnotations(read_only_hint=False, destructive_hint=False, open_world_hint=False)
@@ -41,7 +42,8 @@ mcp = MCPServer(
         "bridge). Nothing is downloaded until queue_approved(confirm=True) is called after the user has seen its "
         "totals. Typical order: import_playlist_file -> resolve_playlist -> scan_library (once) -> diff_library -> "
         "match_playlist -> playlist_status until the job finishes -> review_candidates -> approve -> "
-        "queue_approved -> sync_downloads -> write_m3u."
+        "queue_approved -> sync_downloads -> write_m3u. Library housekeeping: tidy_analyse (dry run, writes a "
+        "report) then tidy_apply(confirm=True) once the user has approved the plan."
     ),
 )
 
@@ -74,7 +76,7 @@ def tool_errors(function):
     async def wrapper(*args, **kwargs):
         try:
             return await function(*args, **kwargs)
-        except (LookupError, ValueError, FileNotFoundError, BridgeError, MusicBrainzError, PermissionError) as error:
+        except (LookupError, ValueError, FileNotFoundError, BridgeError, MusicBrainzError, PermissionError, TidyError) as error:
             raise ToolError(str(error)) from None
 
     return wrapper
@@ -615,6 +617,42 @@ async def write_m3u(playlist_id: int, path: str | None = None, relative_to: str 
     result = _write_m3u(target, playlist["name"], entries, relative)
     result["missing_count"] = len(result["missing"])
     result["missing"] = result["missing"][:50]
+    return result
+
+
+# Tidy #
+
+@mcp.tool(annotations=WRITE_LOCAL)
+@tool_errors
+async def tidy_analyse(music_dir: str | None = None) -> dict:
+    """Dry run of the library tidy: plan tag fixes, lossy-duplicate deletions and moves to Artist/Album/NN - Title.
+
+    Writes <music_dir>/.tidy/report.txt (read it whole for the detail) and plan.json, and returns a summary with the
+    open questions that need decisions in <music_dir>/.tidy/approved.py. Changes nothing in the library.
+    """
+    root = Path(music_dir).expanduser() if music_dir else config.music_dir()
+    return await asyncio.to_thread(lambda: Tidy(root).analyse())
+
+
+@mcp.tool(annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True, open_world_hint=False))
+@tool_errors
+async def tidy_apply(music_dir: str | None = None, confirm: bool = False, force: bool = False) -> dict:
+    """Apply the tidy plan: backup tags, write tags, delete planned duplicates, move files, prune empty folders.
+
+    Without confirm=True this only returns the current plan summary (same as tidy_analyse) and changes nothing; call it
+    with confirm=True only after the user has seen the deletions by name and said yes. Refuses while audio files are
+    still being written (a download in progress) unless force=True.
+    """
+    root = Path(music_dir).expanduser() if music_dir else config.music_dir()
+
+    if not confirm:
+        summary = await asyncio.to_thread(lambda: Tidy(root).analyse())
+        summary["applied"] = False
+        summary["note"] = "Nothing changed. Show the deletions and counts to the user; call again with confirm=True on their yes."
+        return summary
+
+    result = await asyncio.to_thread(lambda: Tidy(root).apply(force=force))
+    result["applied"] = True
     return result
 
 

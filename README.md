@@ -5,7 +5,8 @@
 A Claude Code plugin that gets a streaming playlist onto disk: import the playlist file, canonicalise
 it against MusicBrainz, see what you already have, fetch the rest from Soulseek through your own running
 Nicotine+ (one identity, your shares intact), and write an M3U in the original order. Nothing is
-downloaded until you have seen the totals and said yes.
+downloaded until you have seen the totals and said yes. Afterwards, `/music-tidy` puts the library in
+order: tags normalised, lossy duplicates of FLACs dropped, everything filed as `Artist/Album/NN - Title`.
 
 ```
 Claude Code ─┬─stdio─▶ library server (playlists · MusicBrainz · local index · matching)
@@ -62,6 +63,28 @@ Say `/playlist-sync` or just hand Claude a playlist file. The skill walks throug
 8. `write_m3u` — original order, missing tracks reported rather than dropped.
 
 State lives in `~/.claude/plugins/data/claude-music@claude-music/state.db`; every step is resumable.
+
+### Tidy
+
+Say `/music-tidy` (or "sort the new downloads"). The `music-tidy` skill drives two tools on the library
+server and one decisions file:
+
+1. `tidy_analyse` — a dry run. Writes `<library>/.tidy/report.txt` and `plan.json`, returns counts and
+   the open questions, changes nothing. Refuses to be applied while audio files are still being written.
+2. Open questions are settled in `<library>/.tidy/approved.py`, which is persistent and cumulative:
+   canonical artist spellings, album fills, date picks, playlist dumps to delete, duplicate edits to
+   drop, booklets and cover art to file with their album. Claude proposes, you decide, the file remembers.
+3. `tidy_apply(confirm=True)` — only after the plan (every deletion by name) has been shown and approved.
+   Backs up every raw tag to `.tidy/backups/`, writes tags, deletes, moves, files download reports into
+   `.tidy/reports/`, prunes empty folders, and logs each action with its rule to `.tidy/tag_changes.log`.
+
+Target state: `Artist/Album/NN - Title.ext`; ARTIST, ALBUMARTIST, ALBUM, TITLE, TRACKNUMBER on every
+file; DATE as `YYYY` or `YYYY-MM-DD` and identical across an album; guests as `Primary feat. Guest` in
+ARTIST only; one copy per song with FLAC beating lossy. The rules the planner applies on its own (trim
+whitespace, normalise `feat.`, set ALBUMARTIST, unify album spelling, propagate dates, integer track
+numbers, FLAC beats lossy, move, prune) are listed in the skill; everything else waits for a decision.
+FLAC, MP3, M4A, Ogg and Opus are handled. The same planner runs from a shell as
+`uv run --project plugins/claude-music/servers/library claude-music-tidy analyse|apply [root]`.
 
 ### Spotify
 
@@ -142,5 +165,5 @@ claude plugin validate plugins/claude-music --strict
 `claude --plugin-dir plugins/claude-music`, then `/reload-plugins` after edits.
 
 Layout: `nicotine-plugin/mcp_bridge` (Nicotine+ plugin, stdlib only), `plugins/claude-music`
-(the Claude Code plugin: manifest, `.mcp.json`, `servers/nicotine_mcp.py`, `servers/library/`, skill,
-agent, hook), `tests/`, `docs/ROADMAP.md`, `site/` (the static site, deployed to Vercel from that folder). Licence: GPL-3.0-or-later.
+(the Claude Code plugin: manifest, `.mcp.json`, `servers/nicotine_mcp.py`, `servers/library/`, the
+`playlist-sync` and `music-tidy` skills, agent, hook), `tests/`, `docs/ROADMAP.md`, `site/` (the static site, deployed to Vercel from that folder). Licence: GPL-3.0-or-later.

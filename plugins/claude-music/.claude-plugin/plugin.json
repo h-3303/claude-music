@@ -1,12 +1,20 @@
 {
   "name": "claude-music",
-  "version": "0.1.0",
-  "description": "Import streaming playlists, match them against your local library and fetch the missing tracks through your running Nicotine+ (Soulseek) client.",
+  "version": "0.2.0",
+  "description": "Import streaming playlists, match them against your local library, fetch the missing tracks through your running Nicotine+ (Soulseek) client, and tidy the library afterwards: tags, duplicates, Artist/Album/NN - Title.",
   "author": {
     "name": "h-3303"
   },
   "license": "GPL-3.0-or-later",
-  "keywords": ["music", "soulseek", "nicotine", "playlists", "musicbrainz"],
+  "keywords": [
+    "music",
+    "soulseek",
+    "nicotine",
+    "playlists",
+    "musicbrainz",
+    "tags",
+    "library"
+  ],
   "userConfig": {
     "music_dir": {
       "type": "directory",

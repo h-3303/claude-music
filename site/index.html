@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>claude-music</title>
-<meta name="description" content="A Claude Code plugin that gets a streaming playlist onto disk: MusicBrainz, your local library, and the rest from Soulseek through your own Nicotine+. Nothing is downloaded without your yes.">
+<meta name="description" content="A Claude Code plugin that gets a streaming playlist onto disk: MusicBrainz, your local library, and the rest from Soulseek through your own Nicotine+. Then tidies the library: tags, duplicates, Artist/Album/NN - Title. Nothing is downloaded or deleted without your yes.">
 <meta property="og:title" content="claude-music">
-<meta property="og:description" content="Playlists · MusicBrainz · Soulseek · your own Nicotine+. Everything runs locally.">
+<meta property="og:description" content="Playlists · MusicBrainz · Soulseek · your own Nicotine+ · a tidy library. Everything runs locally.">
 <link rel="stylesheet" href="dtw.css">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23141412'/%3E%3Ctext x='16' y='24' text-anchor='middle' font-family='serif' font-weight='700' font-size='22' fill='%23e8e5dc'%3Ec%3C/text%3E%3C/svg%3E">
 <style>
@@ -76,6 +76,7 @@
           <div class="dtw-x-list__item"><span class="dtw-x-list__x">X</span><span><b>APPROVE.</b> Review candidates with the reason each one scored as it did. Approve, skip, or hand a long list to the matcher agent.</span></div>
           <div class="dtw-x-list__item"><span class="dtw-x-list__x">X</span><span><b>QUEUE.</b> Totals first. Then, and only then, the transfers go to Nicotine+.</span></div>
           <div class="dtw-x-list__item"><span class="dtw-x-list__x">X</span><span><b>WRITE.</b> An M3U in the playlist's own order. Tracks still missing are listed, never dropped.</span></div>
+          <div class="dtw-x-list__item"><span class="dtw-x-list__x">X</span><span><b>TIDY.</b> Once the downloads have landed: tags normalised, lossy copies of FLACs dropped, every file shelved as <code>Artist/Album/NN - Title</code>. Dry run, then your yes.</span></div>
         </div>
       </div>
 
@@ -126,26 +127,66 @@ cd ~/src/claude-music &amp;&amp; ./install.sh</pre>
         <li><code>review_candidates · approve</code><span>confidence 0–1 with a documented formula and a tested table of examples</span></li>
         <li><code>queue_approved</code><span>totals without <code>confirm</code>; transfers only with it</span></li>
         <li><code>sync_downloads · write_m3u</code><span>done, downloading, failed and retried from the next candidate; then the file</span></li>
+        <li><code>tidy_analyse · tidy_apply</code><span>the library put in order; a report and a plan first, writes only with <code>confirm</code></span></li>
         <li><code>nicotine_status · search · browse_folder</code><span>the bridge on its own: search, inspect, browse a folder without downloading, queue, manage</span></li>
       </ul>
+    </div>
+
+    <div class="two">
+      <div>
+        <div class="dtw-bar-heading dtw-bar-heading--typewriter rot-2">THE SHELVES, AFTERWARDS</div>
+        <p class="dtw-body" style="font-size: 13px; margin-top: 14px">
+          A download folder is not a library. <code>/music-tidy</code> reads every FLAC, MP3, M4A, Ogg and Opus under
+          the music folder, computes the whole plan, and writes it to <code>.tidy/report.txt</code> before a single tag
+          is touched. The rules it applies on its own are small and dull: trim whitespace, write <em>feat.</em> one
+          way, set ALBUMARTIST, spell an album the same on every track, carry the date across its siblings, turn
+          <code>3/12</code> into a track number and a total, prefer the FLAC to the m4a of the same song, file
+          everything as <code>Artist/Album/NN - Title.ext</code>, sweep the download reports out, prune what is empty.
+        </p>
+        <p class="dtw-body" style="font-size: 13px; margin-top: 12px">
+          Everything else is a question, not a rule. Two spellings of one band, an album nobody dated, a folder of
+          twelve artists that is probably a playlist dump, two edits of one song: each is put to you, and the answer
+          goes into <code>.tidy/approved.py</code>, a plain file that remembers. The next run does not ask again.
+        </p>
+      </div>
+      <div class="stack">
+        <div class="dtw-pasted-box rot-1">
+          <div class="dtw-bar-heading dtw-bar-heading--typewriter" style="margin: -4px 0 10px">TARGET STATE</div>
+<pre class="dtw-typewriter pre">Built To Spill/
+  Keep It Like a Secret/
+    01 - The Plan.flac
+    02 - Center of the Universe.flac
+    03 - Carry the Zero.flac
+    booklet.pdf
+.tidy/
+  approved.py     your decisions
+  report.txt      last dry run
+  backups/        raw tags, before every write
+  tag_changes.log every change, with its rule</pre>
+        </div>
+        <div class="dtw-torn-scrap dtw-torn-scrap--v2 dtw-xerox" style="transform: rotate(1.2deg); max-width: 300px">
+          <p class="dtw-typewriter" style="font-size: 11px">Refuses to apply while a file was written in the last three minutes: a download is still landing. Refuses on path clashes. Deletes only what the plan listed by name.</p>
+        </div>
+      </div>
     </div>
   </div>
 
   <div class="dtw-sheet dtw-sheet--black black-band">
     <div class="dtw-reversed-panel" style="padding: 0; max-width: 560px">
-      <h2 class="dtw-headline dtw-headline--on-black" style="font-size: 20px">WHAT THE SKILL WILL NOT DO.</h2>
+      <h2 class="dtw-headline dtw-headline--on-black" style="font-size: 20px">WHAT THE SKILLS WILL NOT DO.</h2>
       <p class="dtw-body dtw-body--on-black" style="margin-top: 10px">
-        It will not queue a transfer before you have seen the totals and agreed in the same conversation. It will not raise
-        the search rate limit, or suggest it, without asking. It will not dump a whole tracklist into the conversation.
-        It will not touch the Spotify API: their terms forbid feeding platform data to a model, so the data export is the
-        route. It will not send anything anywhere but MusicBrainz and your own Nicotine+.
+        They will not queue a transfer before you have seen the totals and agreed in the same conversation. They will not
+        raise the search rate limit, or suggest it, without asking. They will not dump a whole tracklist into the
+        conversation. They will not touch the Spotify API: their terms forbid feeding platform data to a model, so the data
+        export is the route. They will not delete a file the plan did not list, nor write a tag without a backup of the
+        old one. They will not send anything anywhere but MusicBrainz and your own Nicotine+.
       </p>
-      <div class="dtw-reversed-panel__attr">— playlist-sync, guardrails section</div>
+      <div class="dtw-reversed-panel__attr">— playlist-sync and music-tidy, guardrails sections</div>
     </div>
 
     <div class="row" style="margin-top: 26px; flex-wrap: wrap; align-items: center">
       <div class="dtw-torn-scrap dtw-torn-scrap--v1 dtw-xerox" style="transform: rotate(-0.9deg); max-width: 300px">
-        <p class="dtw-typewriter" style="font-size: 11px">Tested against Nicotine+ 3.3.10, 3.3.11 and master. 101 tests: a headless Nicotine+ core in-process, fake Soulseek peers, both MCP servers over stdio, a synthetic run from export to M3U. Nothing touches the network.</p>
+        <p class="dtw-typewriter" style="font-size: 11px">Tested against Nicotine+ 3.3.10, 3.3.11 and master. 111 tests: a headless Nicotine+ core in-process, fake Soulseek peers, both MCP servers over stdio, a synthetic run from export to M3U, a synthetic library tidied end to end. Nothing touches the network.</p>
       </div>
       <div class="dtw-pasted-slip dtw-pasted-slip--hand" style="transform: rotate(-1.6deg); font-size: 30px">everything stays on your machine</div>
     </div>
