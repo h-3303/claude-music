@@ -1,0 +1,22 @@
+{
+ "data": [
+  {
+   "id": 3,
+   "readable": true,
+   "title": "Lonely",
+   "title_short": "Lonely",
+   "isrc": "GBBBB0200002",
+   "duration": 185,
+   "artist": {
+    "id": 1,
+    "name": "Solo C"
+   },
+   "album": {
+    "id": 2,
+    "title": "Second"
+   },
+   "type": "track"
+  }
+ ],
+ "total": 3
+}

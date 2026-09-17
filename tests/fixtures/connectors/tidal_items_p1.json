@@ -1,0 +1,77 @@
+{
+ "data": [
+  {
+   "type": "tracks",
+   "id": "1001",
+   "meta": {
+    "itemId": "i1"
+   }
+  },
+  {
+   "type": "videos",
+   "id": "9",
+   "meta": {
+    "itemId": "i2"
+   }
+  }
+ ],
+ "included": [
+  {
+   "type": "tracks",
+   "id": "1001",
+   "attributes": {
+    "title": "Song One",
+    "isrc": "USAAA0100001",
+    "duration": "PT3M20S",
+    "explicit": false
+   },
+   "relationships": {
+    "artists": {
+     "data": [
+      {
+       "type": "artists",
+       "id": "a1"
+      },
+      {
+       "type": "artists",
+       "id": "a2"
+      }
+     ]
+    },
+    "albums": {
+     "data": [
+      {
+       "type": "albums",
+       "id": "al1"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "artists",
+   "id": "a1",
+   "attributes": {
+    "name": "Artist A"
+   }
+  },
+  {
+   "type": "artists",
+   "id": "a2",
+   "attributes": {
+    "name": "Guest B"
+   }
+  },
+  {
+   "type": "albums",
+   "id": "al1",
+   "attributes": {
+    "title": "Album A"
+   }
+  }
+ ],
+ "links": {
+  "self": "/playlists/x/relationships/items",
+  "next": "/v2/playlists/11111111-1111-4111-8111-111111111111/relationships/items?page%5Bcursor%5D=zyx"
+ }
+}

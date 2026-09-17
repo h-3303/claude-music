@@ -1,0 +1,16 @@
+{
+ "data": [
+  {
+   "type": "playlists",
+   "id": "22222222-2222-4222-8222-222222222222",
+   "attributes": {
+    "name": "Quiet",
+    "numberOfItems": 0,
+    "playlistType": "USER"
+   }
+  }
+ ],
+ "links": {
+  "self": "/playlists?page[cursor]=abc"
+ }
+}

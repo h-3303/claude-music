@@ -1,0 +1,8 @@
+{
+ "access_token": "AT1",
+ "refresh_token": "RT1",
+ "expires_in": 3600,
+ "scope": "playlists.read user.read",
+ "token_type": "Bearer",
+ "user_id": 777
+}

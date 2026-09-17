@@ -1,0 +1,40 @@
+{
+ "data": [
+  {
+   "id": 1,
+   "readable": true,
+   "title": "Song One",
+   "title_short": "Song One",
+   "isrc": "USAAA0100001",
+   "duration": 200,
+   "artist": {
+    "id": 1,
+    "name": "Artist A"
+   },
+   "album": {
+    "id": 2,
+    "title": "Album A"
+   },
+   "type": "track"
+  },
+  {
+   "id": 2,
+   "readable": false,
+   "title": "Ghost",
+   "title_short": "Ghost",
+   "isrc": null,
+   "duration": 0,
+   "artist": {
+    "id": 1,
+    "name": "Artist A"
+   },
+   "album": {
+    "id": 2,
+    "title": "Album A"
+   },
+   "type": "track"
+  }
+ ],
+ "total": 3,
+ "next": "https://api.deezer.com/playlist/3155776842/tracks?limit=100&index=2"
+}

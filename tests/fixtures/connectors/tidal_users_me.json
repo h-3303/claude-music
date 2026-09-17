@@ -1,0 +1,10 @@
+{
+ "data": {
+  "type": "users",
+  "id": "777",
+  "attributes": {
+   "country": "NO",
+   "username": "h"
+  }
+ }
+}

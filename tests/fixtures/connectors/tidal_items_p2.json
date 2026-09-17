@@ -1,0 +1,65 @@
+{
+ "data": [
+  {
+   "type": "tracks",
+   "id": "1002",
+   "meta": {
+    "itemId": "i3"
+   }
+  },
+  {
+   "type": "tracks",
+   "id": "1003",
+   "meta": {
+    "itemId": "i4"
+   }
+  }
+ ],
+ "included": [
+  {
+   "type": "tracks",
+   "id": "1002",
+   "attributes": {
+    "title": "Lonely",
+    "isrc": "GBBBB0200002",
+    "duration": "PT1H0M5.5S",
+    "explicit": false
+   },
+   "relationships": {
+    "artists": {
+     "data": [
+      {
+       "type": "artists",
+       "id": "a3"
+      }
+     ]
+    },
+    "albums": {
+     "data": [
+      {
+       "type": "albums",
+       "id": "al2"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "artists",
+   "id": "a3",
+   "attributes": {
+    "name": "Solo C"
+   }
+  },
+  {
+   "type": "albums",
+   "id": "al2",
+   "attributes": {
+    "title": "Second"
+   }
+  }
+ ],
+ "links": {
+  "self": "/playlists/x/relationships/items?page[cursor]=zyx"
+ }
+}

@@ -1,0 +1,13 @@
+{
+ "id": 3155776842,
+ "title": "Top Worldwide",
+ "public": true,
+ "nb_tracks": 3,
+ "link": "https://www.deezer.com/playlist/3155776842",
+ "tracklist": "https://api.deezer.com/playlist/3155776842/tracks",
+ "creator": {
+  "id": 637006841,
+  "name": "Deezer Charts"
+ },
+ "type": "playlist"
+}

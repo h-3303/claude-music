@@ -1,0 +1,51 @@
+{
+ "id": "PLxxxxxxxxxxxxxxxx",
+ "title": "Road Trip",
+ "trackCount": 3,
+ "tracks": [
+  {
+   "videoId": "v1",
+   "title": "Song One",
+   "artists": [
+    {
+     "name": "Artist A",
+     "id": "x"
+    },
+    {
+     "name": "Guest B",
+     "id": "y"
+    }
+   ],
+   "album": {
+    "name": "Album A",
+    "id": "z"
+   },
+   "duration": "3:20",
+   "duration_seconds": 200,
+   "isAvailable": true,
+   "videoType": "MUSIC_VIDEO_TYPE_ATV"
+  },
+  {
+   "videoId": "v2",
+   "title": "Lonely",
+   "artists": [
+    {
+     "name": "Solo C",
+     "id": "q"
+    }
+   ],
+   "album": null,
+   "duration": "3:05",
+   "duration_seconds": 185,
+   "isAvailable": false
+  },
+  {
+   "videoId": "v3",
+   "title": "",
+   "artists": [],
+   "album": null,
+   "duration_seconds": 10,
+   "isAvailable": true
+  }
+ ]
+}

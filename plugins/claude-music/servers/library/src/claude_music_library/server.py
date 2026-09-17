@@ -17,6 +17,7 @@ from mcp.types import ToolAnnotations
 
 from . import __version__, config
 from .bridge import BridgeClient, BridgeError
+from .connectors import SERVICES, ConnectorError, get_connector
 from .db import Database
 from .importers import FORMATS, import_file
 from .jspf import write_jspf
@@ -42,8 +43,11 @@ mcp = MCPServer(
         "bridge). Nothing is downloaded until queue_approved(confirm=True) is called after the user has seen its "
         "totals. Typical order: import_playlist_file -> resolve_playlist -> scan_library (once) -> diff_library -> "
         "match_playlist -> playlist_status until the job finishes -> review_candidates -> approve -> "
-        "queue_approved -> sync_downloads -> write_m3u. Library housekeeping: tidy_analyse (dry run, writes a "
-        "report) then tidy_apply(confirm=True) once the user has approved the plan."
+        "queue_approved -> sync_downloads -> write_m3u. Playlists can also come straight from a service: "
+        "connect_service('tidal') (official API, browser login) or connect_service('youtube-music', headers_raw=...), "
+        "then list_remote_playlists / import_remote_playlist; Deezer public playlists need no login. Library "
+        "housekeeping: tidy_analyse (dry run, writes a report) then tidy_apply(confirm=True) once the user has "
+        "approved the plan."
     ),
 )
 
@@ -76,7 +80,8 @@ def tool_errors(function):
     async def wrapper(*args, **kwargs):
         try:
             return await function(*args, **kwargs)
-        except (LookupError, ValueError, FileNotFoundError, BridgeError, MusicBrainzError, PermissionError, TidyError) as error:
+        except (LookupError, ValueError, FileNotFoundError, BridgeError, MusicBrainzError, PermissionError, TidyError,
+                ConnectorError) as error:
             raise ToolError(str(error)) from None
 
     return wrapper
@@ -157,23 +162,82 @@ async def import_playlist_file(
         raise ValueError(f"format must be one of {', '.join(FORMATS)}")
 
     playlists = import_file(path, format=format, column_mapping=column_mapping, playlist_name=playlist_name)
-    imported = []
+    return {"imported": [_store_playlist(playlist) for playlist in playlists]}
 
-    for playlist in playlists:
-        playlist_id = db().add_playlist(playlist.name, playlist.source, playlist.tracks, source_ref=playlist.source_ref)
-        safe = "".join(c if c.isalnum() or c in " -_" else "_" for c in playlist.name).strip() or "playlist"
-        jspf_path = config.playlists_dir() / f"{playlist_id:04d}-{safe}.jspf"
-        write_jspf(jspf_path, playlist.name, playlist.tracks, playlist.source, playlist.source_ref)
-        db().set_playlist_jspf(playlist_id, jspf_path)
-        imported.append({
-            "playlist_id": playlist_id, "name": playlist.name, "tracks": len(playlist.tracks),
-            "detected_format": playlist.source, "jspf_path": str(jspf_path),
-            "already_local": sum(1 for t in playlist.tracks if t.local_path),
-            "needs_durations": not playlist.has_durations,
-            "warnings": playlist.warnings[:20] + ([f"... {len(playlist.warnings) - 20} more"] if len(playlist.warnings) > 20 else []),
-        })
 
-    return {"imported": imported}
+def _store_playlist(playlist) -> dict:
+    """Persist an ImportedPlaylist (rows + JSPF) and return the compact summary the import tools report."""
+    playlist_id = db().add_playlist(playlist.name, playlist.source, playlist.tracks, source_ref=playlist.source_ref)
+    safe = "".join(c if c.isalnum() or c in " -_" else "_" for c in playlist.name).strip() or "playlist"
+    jspf_path = config.playlists_dir() / f"{playlist_id:04d}-{safe}.jspf"
+    write_jspf(jspf_path, playlist.name, playlist.tracks, playlist.source, playlist.source_ref)
+    db().set_playlist_jspf(playlist_id, jspf_path)
+    return {
+        "playlist_id": playlist_id, "name": playlist.name, "tracks": len(playlist.tracks),
+        "detected_format": playlist.source, "source_ref": playlist.source_ref, "jspf_path": str(jspf_path),
+        "already_local": sum(1 for t in playlist.tracks if t.local_path),
+        "needs_durations": not playlist.has_durations,
+        "warnings": playlist.warnings[:20] + ([f"... {len(playlist.warnings) - 20} more"] if len(playlist.warnings) > 20 else []),
+    }
+
+
+# Streaming services #
+
+Service = Literal["tidal", "deezer", "youtube-music"]
+
+
+@mcp.tool(annotations=NETWORK)
+@tool_errors
+async def connect_service(
+    service: Service,
+    headers_raw: str | None = None,
+    auth_file: str | None = None,
+    force: bool = False,
+) -> dict:
+    """Connect a streaming service so its playlists can be listed and imported directly.
+    tidal: official API with a browser login (PKCE). First call returns an authorize_url (and tries to open it);
+    after the user has approved in the browser, call again to finish. Needs the tidal_client_id user config.
+    youtube-music: pass headers_raw (request headers copied from a logged-in music.youtube.com tab) or
+    auth_file (an existing ytmusicapi browser.json). deezer: nothing to connect, public playlists only.
+    Tokens are stored 0600 under the plugin data dir and never leave this machine."""
+    connector = get_connector(service)
+    return await asyncio.to_thread(connector.connect, headers_raw=headers_raw, auth_file=auth_file, force=force)
+
+
+@mcp.tool(annotations=WRITE_LOCAL)
+@tool_errors
+async def disconnect_service(service: Service) -> dict:
+    """Forget a service's stored tokens / cookies."""
+    return get_connector(service).disconnect()
+
+
+@mcp.tool(annotations=READ_ONLY)
+@tool_errors
+async def service_status(service: Service | None = None) -> dict:
+    """Whether each streaming service is connected, and how to connect it if not."""
+    services = [service] if service else list(SERVICES)
+    return {"services": [get_connector(s).status() for s in services]}
+
+
+@mcp.tool(annotations=NETWORK)
+@tool_errors
+async def list_remote_playlists(service: Service, user: str | None = None) -> dict:
+    """The connected account's playlists (id, name, track count, url). Deezer has no login here: pass user=
+    a Deezer user id or deezer.com/profile/<id> URL to list that user's public playlists."""
+    connector = get_connector(service)
+    playlists = await asyncio.to_thread(connector.list_playlists, user=user)
+    return {"service": connector.key, "playlists": playlists}
+
+
+@mcp.tool(annotations=NETWORK)
+@tool_errors
+async def import_remote_playlist(service: Service, id_or_url: str) -> dict:
+    """Fetch one playlist from a service (by id or share URL) and import it like a file: it gets a
+    playlist_id and a JSPF under the plugin data dir. Follow with resolve_playlist as usual. TIDAL and Deezer
+    supply ISRCs and durations; YouTube Music supplies durations only."""
+    connector = get_connector(service)
+    playlist = await asyncio.to_thread(connector.fetch_playlist, id_or_url)
+    return {"imported": [_store_playlist(playlist)]}
 
 
 @mcp.tool(annotations=READ_ONLY)

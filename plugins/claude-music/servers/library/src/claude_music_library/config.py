@@ -45,3 +45,20 @@ def bridge_socket_path() -> str:
         os.path.join(runtime_dir, "app", "org.nicotine_plus.Nicotine", "nicotine-mcp.sock"),
     ]
     return next((c for c in candidates if os.path.exists(c)), candidates[0])
+
+
+def auth_dir():
+    """0700 folder for service tokens (never in the repo, never in settings.json)."""
+    path = data_dir() / "auth"
+    path.mkdir(parents=True, exist_ok=True)
+    os.chmod(path, 0o700)
+    return path
+
+
+def tidal_client_id() -> str:
+    return (os.environ.get("CLAUDE_MUSIC_TIDAL_CLIENT_ID") or "").strip()
+
+
+def tidal_redirect_uri() -> str:
+    """Loopback redirect for the TIDAL PKCE flow; must be registered verbatim on the TIDAL app."""
+    return (os.environ.get("CLAUDE_MUSIC_TIDAL_REDIRECT_URI") or "").strip() or "http://127.0.0.1:43117/callback"
