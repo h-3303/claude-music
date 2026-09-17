@@ -20,7 +20,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSIONS = {1, 2}
 LOSSLESS = {"flac", "wav", "ape", "wv", "aif", "aiff", "dsf", "dff", "tak", "tta"}
 TRANSFER_STATUSES = (
     "Queued", "Getting status", "Transferring", "Paused", "Cancelled", "Filtered", "Finished",
@@ -79,7 +79,15 @@ async def call(method, **params):
     response = json.loads(line)
 
     if not response.get("ok"):
-        raise ToolError(response.get("error", "unknown error from Nicotine+"))
+        error = response.get("error", "unknown error from Nicotine+")
+
+        if error == "rate_limited":
+            raise ToolError(
+                f"Soulseek search rate limit reached in Nicotine+; retry in {response.get('retry_after', '?')} s "
+                "(the limit protects the account from a 30-minute server ban)"
+            )
+
+        raise ToolError(error)
 
     return response["result"]
 
@@ -172,8 +180,10 @@ async def nicotine_status() -> dict:
     tracked searches, and recent folder-download requests."""
     status = await call("status")
 
-    if status.get("protocol") != PROTOCOL_VERSION:
+    if status.get("protocol") not in PROTOCOL_VERSIONS:
         status["warning"] = "plugin/server protocol mismatch; update both halves"
+    elif status.get("protocol") == 1:
+        status["warning"] = "Nicotine+ plugin is protocol v1: no search rate limiting or folder browsing; reinstall it"
 
     return status
 
@@ -258,6 +268,55 @@ async def download_folder(username: str, folder_path: str, include_subfolders: b
     return await call(
         "download_folder", username=username, folder_path=folder_path, include_subfolders=include_subfolders
     )
+
+
+def _folder_listing_summary(data):
+    if data["status"] != "ready":
+        return data
+
+    folders = []
+
+    for folder, files in data["folders"].items():
+        folders.append({
+            "folder": folder,
+            "files": len(files),
+            "total_mb": _mb(sum(f["size"] or 0 for f in files)),
+            "entries": [
+                {
+                    "name": f["name"],
+                    "mb": _mb(f["size"]),
+                    "quality": _quality(f),
+                    **({"length": f"{f['duration'] // 60}:{f['duration'] % 60:02d}"} if f.get("duration") else {}),
+                }
+                for f in files
+            ],
+        })
+
+    return {"status": "ready", "user": data["user"], "folder": data["folder"], "total_files": data["total_files"],
+            "folders": folders}
+
+
+@mcp.tool(annotations=READ_ONLY)
+async def browse_folder(username: str, folder_path: str, include_subfolders: bool = False, wait_seconds: int = 10) -> dict:
+    """Ask a user for the file listing of a folder WITHOUT downloading anything (needs Nicotine+ plugin
+    protocol v2). Waits up to wait_seconds for the reply; if still pending, call get_folder_contents later.
+    Use it to check an album folder's track count and quality before download_folder."""
+    await call("folder_contents", username=username, folder_path=folder_path, include_subfolders=include_subfolders)
+    deadline = asyncio.get_running_loop().time() + max(0, min(wait_seconds, 60))
+
+    while True:
+        data = await call("folder_contents_result", username=username, folder_path=folder_path)
+
+        if data["status"] != "pending" or asyncio.get_running_loop().time() >= deadline:
+            return _folder_listing_summary(data)
+
+        await asyncio.sleep(1)
+
+
+@mcp.tool(annotations=READ_ONLY)
+async def get_folder_contents(username: str, folder_path: str) -> dict:
+    """Re-check a folder listing requested earlier with browse_folder (status: pending, ready, timed_out, unknown)."""
+    return _folder_listing_summary(await call("folder_contents_result", username=username, folder_path=folder_path))
 
 
 @mcp.tool(annotations=READ_ONLY)

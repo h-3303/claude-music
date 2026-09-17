@@ -21,7 +21,7 @@ def test_plugin_loads_and_socket_is_private(nicotine):
     assert stat.S_IMODE(mode) == 0o600
 
     status = nicotine.rpc("status")
-    assert status["protocol"] == 1
+    assert status["protocol"] == 2
     assert status["nicotine_version"] == nicotine.version
     assert status["online"] is True
     assert status["username"] == nicotine.username
@@ -111,7 +111,7 @@ def test_disable_removes_socket_and_reenable_works(nicotine):
 
     assert nicotine.enable_bridge()
     assert os.path.lexists(nicotine.socket_path)
-    assert nicotine.rpc("status")["protocol"] == 1
+    assert nicotine.rpc("status")["protocol"] == 2
 
 
 def test_stale_socket_file_is_replaced(nicotine):

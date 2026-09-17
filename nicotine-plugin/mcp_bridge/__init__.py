@@ -4,9 +4,10 @@
 Exposes a tiny JSON API on a Unix domain socket so an external MCP server can
 search Soulseek and manage downloads through this running Nicotine+ instance.
 
-Wire protocol: one request per connection.
+Wire protocol (v2; every v1 method and response shape is unchanged, v2 only adds):
     client -> {"method": "<name>", "params": {...}}\\n
     server -> {"ok": true, "result": ...}\\n   or   {"ok": false, "error": "..."}\\n
+    A search refused by the rate limiter answers {"ok": false, "error": "rate_limited", "retry_after": <s>}.
 
 Threading model: the socket server runs in background threads, but every
 handler is marshalled onto Nicotine+'s main loop via events.invoke_main_thread,
@@ -28,10 +29,12 @@ from collections import OrderedDict
 from pynicotine.events import events
 from pynicotine.pluginsystem import BasePlugin
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 MAX_REQUEST_BYTES = 256 * 1024
 MAIN_THREAD_TIMEOUT = 15
 PENDING_FOLDER_TTL = 180
+MAX_FOLDER_LISTINGS = 50
+UINT32_LIMIT = 2 ** 32 - 1
 
 # Soulseek file attribute codes (pynicotine.slskmessages.FileAttribute)
 ATTR_CODES = {"bitrate": 0, "duration": 1, "vbr": 2, "sample_rate": 4, "bit_depth": 5}
@@ -59,6 +62,14 @@ def _extension(path):
     return basename.rpartition(".")[2].lower() if "." in basename else ""
 
 
+class RateLimited(ValueError):
+    """Raised when the search token bucket is empty; retry_after is in seconds."""
+
+    def __init__(self, retry_after):
+        super().__init__("rate_limited")
+        self.retry_after = retry_after
+
+
 class Plugin(BasePlugin):
 
     def __init__(self, *args, **kwargs):
@@ -69,6 +80,8 @@ class Plugin(BasePlugin):
             "allow_downloads": True,
             "max_results_per_search": 5000,
             "max_searches_kept": 20,
+            "search_rate_limit": 34,
+            "search_rate_window": 220,
         }
         self.metasettings = {
             "socket_path": {
@@ -87,11 +100,23 @@ class Plugin(BasePlugin):
                 "description": "Max searches tracked at once (oldest are removed)",
                 "type": "int", "minimum": 1
             },
+            "search_rate_limit": {
+                "description": "Max searches the MCP client may start per window (Soulseek bans for 30 min if exceeded)",
+                "type": "int", "minimum": 1
+            },
+            "search_rate_window": {
+                "description": "Length of the search rate window in seconds",
+                "type": "int", "minimum": 1
+            },
         }
 
         self._searches = OrderedDict()   # token -> dict
         self._pending_folders = {}       # (username, folder_path) -> dict
+        self._folder_listings = OrderedDict()  # (username, folder_path) -> listing (listing-only requests)
         self._folder_log = []            # recent folder request outcomes
+        self._listing_token = 0
+        self._rate_tokens = None         # search token bucket (None = full)
+        self._rate_updated = time.monotonic()
         self._captured_tokens = None
         self._server_socket = None
         self._server_thread = None
@@ -248,8 +273,13 @@ class Plugin(BasePlugin):
                 else:
                     message = f"{type(error).__name__}: {error}"
 
+                payload = {"ok": False, "error": message}
+
+                if isinstance(error, RateLimited):
+                    payload["retry_after"] = round(error.retry_after, 1)
+
                 try:
-                    self._send(conn, {"ok": False, "error": message})
+                    self._send(conn, payload)
                 except OSError:
                     pass
 
@@ -355,6 +385,11 @@ class Plugin(BasePlugin):
                 return
 
             del self._pending_folders[key]
+
+            if pending.get("mode") == "list":
+                self._store_folder_listing(key, msg, pending["include_subfolders"])
+                return
+
             downloads = self.core.downloads
             queued = 0
             prefix = requested_path.rstrip("\\") + "\\"
@@ -382,6 +417,42 @@ class Plugin(BasePlugin):
         except Exception:
             self.log("Error handling folder contents:\n%s", traceback.format_exc())
 
+    def _store_folder_listing(self, key, msg, include_subfolders):
+        username, requested_path = key
+        prefix = requested_path.rstrip("\\") + "\\"
+        folders = {}
+        total = 0
+
+        for folder_path, files in msg.list.items():
+            is_root = folder_path == requested_path
+            is_sub = include_subfolders and folder_path.startswith(prefix)
+
+            if not (is_root or is_sub):
+                continue
+
+            entries = []
+
+            for _code, basename, size, _ext, attrs, *_unused in files:
+                entries.append({
+                    "name": basename,
+                    "path": folder_path.rstrip("\\") + "\\" + basename,
+                    "size": size,
+                    **_read_attrs(attrs),
+                })
+
+            folders[folder_path] = entries
+            total += len(entries)
+
+        self._folder_listings[key] = {
+            "user": username, "folder": requested_path, "received": time.time(),
+            "folders": folders, "total_files": total,
+        }
+
+        while len(self._folder_listings) > MAX_FOLDER_LISTINGS:
+            self._folder_listings.popitem(last=False)
+
+        self._log_folder(username, requested_path, f"listed {total} files")
+
     def _log_folder(self, username, folder_path, outcome):
         self._folder_log.append({"user": username, "folder": folder_path, "outcome": outcome, "time": time.time()})
         del self._folder_log[:-20]
@@ -393,6 +464,38 @@ class Plugin(BasePlugin):
             if now - pending["requested"] > PENDING_FOLDER_TTL:
                 del self._pending_folders[key]
                 self._log_folder(key[0], key[1], "timed out (user offline or not responding)")
+
+    # Search rate limiter (token bucket, main thread) #
+
+    def _rate_capacity(self):
+        return max(1, int(self.settings.get("search_rate_limit") or 34))
+
+    def _rate_window(self):
+        return max(1, int(self.settings.get("search_rate_window") or 220))
+
+    def _refill_rate_bucket(self):
+        capacity = self._rate_capacity()
+        now = time.monotonic()
+
+        if self._rate_tokens is None:
+            self._rate_tokens = float(capacity)
+
+        self._rate_tokens = min(float(capacity), self._rate_tokens + (now - self._rate_updated) * capacity / self._rate_window())
+        self._rate_updated = now
+
+    def _take_search_token(self):
+        self._refill_rate_bucket()
+
+        if self._rate_tokens >= 1:
+            self._rate_tokens -= 1
+            return
+
+        per_second = self._rate_capacity() / self._rate_window()
+        raise RateLimited((1 - self._rate_tokens) / per_second)
+
+    def _rate_limit_status(self):
+        self._refill_rate_bucket()
+        return {"available": int(self._rate_tokens), "capacity": self._rate_capacity(), "window_s": self._rate_window()}
 
     # API methods (main thread) #
 
@@ -429,6 +532,7 @@ class Plugin(BasePlugin):
             "allow_downloads": bool(self.settings.get("allow_downloads", True)),
             "download_folder": self.core.downloads.get_default_download_folder(),
             "downloads_by_status": counts,
+            "rate_limit": self._rate_limit_status(),
             "searches": self.api_list_searches(),
             "pending_folder_requests": [
                 {"user": user, "folder": folder, "age_seconds": round(time.time() - p["requested"])}
@@ -470,6 +574,7 @@ class Plugin(BasePlugin):
         if not self._is_online():
             raise ValueError("Nicotine+ is not connected to the Soulseek server")
 
+        self._take_search_token()
         self._captured_tokens = []
 
         try:
@@ -581,7 +686,7 @@ class Plugin(BasePlugin):
 
         folder_path = folder_path.replace("/", "\\").rstrip("\\")
         self._pending_folders[(username, folder_path)] = {
-            "requested": time.time(), "include_subfolders": bool(include_subfolders)
+            "requested": time.time(), "include_subfolders": bool(include_subfolders), "mode": "download"
         }
 
         downloads = self.core.downloads
@@ -594,6 +699,66 @@ class Plugin(BasePlugin):
 
         return {"requested": {"user": username, "folder": folder_path},
                 "note": "Files are queued once the user replies; check status or list_downloads."}
+
+    def api_folder_contents(self, username, folder_path, include_subfolders=False):
+        """Request a folder listing without downloading anything (protocol v2)."""
+
+        if not self._is_online():
+            raise ValueError("Nicotine+ is not connected to the Soulseek server")
+
+        folder_path = folder_path.replace("/", "\\").rstrip("\\")
+        key = (username, folder_path)
+        self._folder_listings.pop(key, None)
+        self._pending_folders[key] = {
+            "requested": time.time(), "include_subfolders": bool(include_subfolders), "mode": "list"
+        }
+
+        downloads = self.core.downloads
+        request = getattr(downloads, "request_folder", None)  # Nicotine+ 3.4+: request without downloading
+
+        if request is not None:
+            request(username, folder_path)
+        else:
+            # Nicotine+ 3.3 has no request-only API (enqueue_folder downloads), so send the
+            # request ourselves; the core ignores replies for folders it did not request.
+            from pynicotine.slskmessages import FolderContentsRequest
+
+            # A stale entry from an earlier download_folder (e.g. a pending legacy retry) would make
+            # the 3.3 core download the folder when this reply arrives, so drop it first.
+            stale = getattr(downloads, "_requested_folders", {}).get(username, {}).pop(folder_path, None)
+
+            if stale is not None and getattr(stale, "request_timer_id", None) is not None:
+                events.cancel_scheduled(stale.request_timer_id)
+
+            self._listing_token = (self._listing_token % UINT32_LIMIT) + 1
+            self.core.send_message_to_peer(username, FolderContentsRequest(folder_path, self._listing_token))
+
+        return {"requested": {"user": username, "folder": folder_path},
+                "note": "Poll folder_contents_result until status is 'ready'."}
+
+    def api_folder_contents_result(self, username, folder_path):
+        self._expire_pending_folders()
+        folder_path = folder_path.replace("/", "\\").rstrip("\\")
+        key = (username, folder_path)
+        now = time.time()
+        pending = self._pending_folders.get(key)
+
+        if pending is not None and pending.get("mode") == "list":
+            return {"status": "pending", "user": username, "folder": folder_path,
+                    "age_seconds": round(now - pending["requested"])}
+
+        listing = self._folder_listings.get(key)
+
+        if listing is not None:
+            return {"status": "ready", "user": username, "folder": folder_path,
+                    "age_seconds": round(now - listing["received"]),
+                    "total_files": listing["total_files"], "folders": listing["folders"]}
+
+        for entry in reversed(self._folder_log):
+            if (entry["user"], entry["folder"]) == key and entry["outcome"].startswith("timed out"):
+                return {"status": "timed_out", "user": username, "folder": folder_path}
+
+        return {"status": "unknown", "user": username, "folder": folder_path}
 
     def _transfers_by_ids(self, download_ids):
         wanted = set(download_ids)
@@ -660,6 +825,8 @@ class Plugin(BasePlugin):
         "stop_search": api_stop_search,
         "download_results": api_download_results,
         "download_folder": api_download_folder,
+        "folder_contents": api_folder_contents,
+        "folder_contents_result": api_folder_contents_result,
         "list_downloads": api_list_downloads,
         "cancel_downloads": api_cancel_downloads,
         "retry_downloads": api_retry_downloads,

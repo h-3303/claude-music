@@ -1,4 +1,4 @@
-Version = "2026-09-16r00"
+Version = "2026-09-16r01"
 Authors = ["you"]
 Name = "MCP Bridge"
 Description = "Lets an external MCP server (Claude Code / Claude Desktop) search Soulseek and manage downloads through this Nicotine+ instance over a private Unix socket."

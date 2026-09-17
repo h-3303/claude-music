@@ -48,8 +48,8 @@ async def test_tool_list_and_status(bridge):
         tools = {tool.name: tool for tool in (await session.list_tools()).tools}
         assert set(tools) == {
             "nicotine_status", "search", "get_search_results", "list_searches", "stop_search",
-            "download_files", "download_folder", "list_downloads", "cancel_downloads", "retry_downloads",
-            "clear_downloads",
+            "download_files", "download_folder", "browse_folder", "get_folder_contents", "list_downloads",
+            "cancel_downloads", "retry_downloads", "clear_downloads",
         }
         assert tools["nicotine_status"].annotations.read_only_hint is True
         assert tools["stop_search"].annotations.destructive_hint is True
@@ -58,8 +58,9 @@ async def test_tool_list_and_status(bridge):
         status = payload(await session.call_tool("nicotine_status", {}))
         assert status["online"] is True
         assert status["username"] == bridge.username
-        assert status["protocol"] == 1
+        assert status["protocol"] == 2
         assert "warning" not in status
+        assert status["rate_limit"]["capacity"] == 34
 
 
 async def test_unreachable_bridge_is_a_tool_error(bridge, tmp_path):
@@ -170,3 +171,46 @@ async def test_download_folder_flow(bridge):
         status = payload(await session.call_tool("nicotine_status", {}))
         assert status["pending_folder_requests"] == []
         assert status["recent_folder_requests"][-1]["outcome"] == "queued 2 files"
+
+
+async def test_browse_folder_flow(bridge):
+    async with mcp_session(bridge.socket_path) as session:
+        pending = payload(await session.call_tool("browse_folder", {
+            "username": "peer1", "folder_path": ALBUM, "wait_seconds": 0,
+        }))
+        assert pending["status"] == "pending"
+
+        bridge.send_folder_contents("peer1", ALBUM, {
+            ALBUM: [
+                (1, "01 - One.flac", 31_457_280, "flac", bridge.make_attrs(duration=200, sample_rate=44100, bit_depth=16)),
+                (1, "02 - Two.flac", 31_457_280, "flac", bridge.make_attrs(duration=185, sample_rate=44100, bit_depth=16)),
+            ],
+        })
+
+        ready = payload(await session.call_tool("get_folder_contents", {"username": "peer1", "folder_path": ALBUM}))
+        assert ready["status"] == "ready" and ready["total_files"] == 2
+        (folder,) = ready["folders"]
+        assert folder["folder"] == ALBUM and folder["files"] == 2 and folder["total_mb"] == 60.0
+        assert folder["entries"][0] == {"name": "01 - One.flac", "mb": 30.0, "quality": "flac 16bit 44.1kHz", "length": "3:20"}
+
+        listed = payload(await session.call_tool("list_downloads", {}))
+        assert listed["total"] == 0
+
+
+async def test_rate_limit_error_is_explained(bridge):
+    bridge.set_plugin_setting("search_rate_limit", 1)
+    bridge.set_plugin_setting("search_rate_window", 60)
+
+    def reset_bucket():
+        bridge.plugin._rate_tokens = None
+
+    bridge.on_main(reset_bucket)
+    try:
+        async with mcp_session(bridge.socket_path) as session:
+            await session.call_tool("search", {"query": "first", "wait_seconds": 0})
+            text = error_text(await session.call_tool("search", {"query": "second", "wait_seconds": 0}))
+            assert "rate limit" in text and "retry in" in text
+    finally:
+        bridge.set_plugin_setting("search_rate_limit", 34)
+        bridge.set_plugin_setting("search_rate_window", 220)
+        bridge.on_main(reset_bucket)

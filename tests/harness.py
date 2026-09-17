@@ -309,6 +309,11 @@ class NicotineHarness:
             for token in list(core.search.searches):
                 core.search.remove_search(token)
 
+            requested = getattr(core.downloads, "_requested_folders", None)
+
+            if requested is not None:
+                requested.clear()
+
             transfers = list(core.downloads.transfers.values())
 
             if transfers:
@@ -318,6 +323,7 @@ class NicotineHarness:
                 plugin = self.plugin
                 plugin._searches.clear()
                 plugin._pending_folders.clear()
+                plugin._folder_listings.clear()
                 plugin._folder_log.clear()
 
         self.on_main(apply)
