@@ -2,8 +2,8 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "claude-music",
   "displayName": "claude-music",
-  "version": "0.2.1",
-  "description": "Import streaming playlists, match them against your local library, fetch the missing tracks through your running Nicotine+ (Soulseek) client, and tidy the library afterwards: tags, duplicates, Artist/Album/NN - Title.",
+  "version": "0.3.0",
+  "description": "Import streaming playlists (TIDAL, Deezer, YouTube Music, or exported files), match them against your local library, fetch the missing tracks through your running Nicotine+ (Soulseek) client, and tidy the library afterwards: tags, duplicates, Artist/Album/NN - Title.",
   "author": {
     "name": "h-3303",
     "url": "https://github.com/h-3303"
@@ -22,7 +22,10 @@
     "tags",
     "music-library",
     "mcp",
-    "claude-code"
+    "claude-code",
+    "tidal",
+    "deezer",
+    "youtube-music"
   ],
   "userConfig": {
     "music_dir": {
@@ -41,6 +44,12 @@
       "type": "string",
       "title": "Nicotine+ bridge socket",
       "description": "Only needed if you set a custom socket path in the Nicotine+ MCP Bridge plugin settings",
+      "default": ""
+    },
+    "tidal_client_id": {
+      "type": "string",
+      "title": "TIDAL client id",
+      "description": "Client ID of your own app at developer.tidal.com (register the redirect URI http://127.0.0.1:43117/callback on it). Leave empty if you do not use TIDAL.",
       "default": ""
     }
   }

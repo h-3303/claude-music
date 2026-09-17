@@ -1,6 +1,6 @@
 ---
 name: playlist-sync
-description: Import a streaming playlist export (Spotify data export, Exportify CSV, CSV, M3U, JSPF, XSPF), canonicalise it against MusicBrainz, find which tracks are already in the local library, fetch the missing ones through the running Nicotine+ on Soulseek with the user's approval, and write an M3U in the original order. Use when the user mentions a playlist file, syncing a playlist, missing tracks, or getting an album/tracklist onto disk.
+description: Import a playlist straight from TIDAL, Deezer or YouTube Music, or from an export file (Spotify data export, Exportify CSV, CSV, M3U, JSPF, XSPF), canonicalise it against MusicBrainz, find which tracks are already in the local library, fetch the missing ones through the running Nicotine+ on Soulseek with the user's approval, and write an M3U in the original order. Use when the user mentions a playlist file or link, a TIDAL/Deezer/YouTube Music playlist, syncing a playlist, missing tracks, or getting an album/tracklist onto disk.
 tags: [music, soulseek, playlists]
 ---
 
@@ -12,11 +12,21 @@ calls are MusicBrainz lookups and Soulseek traffic through the user's own Nicoti
 
 ## Workflow
 
-1. **Import.** `import_playlist_file(path)`; format is auto-detected. A Spotify export with several
-   playlists imports them all — if that is not what the user wants, list the names and let them pick
-   (`playlist_name`). Report the playlist_id, track count and any warnings.
-2. **Resolve.** `resolve_playlist(playlist_id)`. Spotify exports carry no durations; this fills them
-   in. Runs at one request per second, so a 300-track playlist takes a few minutes — say so up front.
+1. **Import.** From a file: `import_playlist_file(path)`; format is auto-detected. A Spotify export with
+   several playlists imports them all — if that is not what the user wants, list the names and let them
+   pick (`playlist_name`). From a service: `import_remote_playlist(service, id_or_url)` with a share link
+   or id, or `list_remote_playlists(service)` first and let the user pick. Report the playlist_id, track
+   count and any warnings. Services:
+   - **tidal** — needs the user's own TIDAL app (`tidal_client_id` in the plugin config). `connect_service("tidal")`
+     returns an `authorize_url` and tries to open it; tell the user to log in and approve, then call
+     `connect_service("tidal")` again to finish. Tokens refresh themselves afterwards.
+   - **deezer** — public playlists only, no login. `list_remote_playlists("deezer", user=<id or profile URL>)`.
+   - **youtube-music** — unofficial (ytmusicapi). `service_status("youtube-music")` explains how to copy
+     request headers from a logged-in tab; then `connect_service("youtube-music", headers_raw=...)`.
+     Expect it to break occasionally when YouTube changes; say so rather than retrying.
+   `service_status()` shows what is connected. `disconnect_service` forgets stored tokens.
+2. **Resolve.** `resolve_playlist(playlist_id)`. Spotify exports and YouTube Music carry no ISRCs (and
+   Spotify exports no durations); this fills in what it can. Runs at one request per second, so a 300-track playlist takes a few minutes — say so up front.
    Show the unresolved tracks; they can still be matched, just with less certainty.
 3. **Library.** `scan_library()` once per session (incremental afterwards), then
    `diff_library(playlist_id)`. Report how many tracks are already owned.
@@ -49,3 +59,7 @@ calls are MusicBrainz lookups and Soulseek traffic through the user's own Nicoti
   `min_bitrate` explicitly.
 - If the bridge is unreachable, tell the user to start Nicotine+ and enable the MCP Bridge plugin
   (Preferences → Plugins). Do not retry in a loop.
+- Service tokens and cookies stay in 0600 files under the plugin data dir. Never echo `headers_raw`,
+  tokens or cookie values back into the conversation, and never write them anywhere else.
+- Spotify's API is deliberately not connected (its developer terms forbid feeding API data to an AI
+  model); the Spotify route is the data export or an Exportify CSV.

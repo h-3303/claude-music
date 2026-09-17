@@ -72,7 +72,8 @@ you changed it in Nicotine+.
 Say `/playlist-sync` or just hand Claude a playlist file. The skill walks through:
 
 1. `import_playlist_file` — Spotify data export (`Playlist1.json`, `YourLibrary.json`), Exportify CSV,
-   generic CSV, M3U/M3U8, JSPF, XSPF. Each playlist becomes a JSPF file under the plugin data dir.
+   generic CSV, M3U/M3U8, JSPF, XSPF — or `import_remote_playlist` straight from TIDAL, Deezer or
+   YouTube Music (see [Services](#services)). Each playlist becomes a JSPF file under the plugin data dir.
 2. `resolve_playlist` — MusicBrainz ids, release track counts and (for Spotify exports) durations.
 3. `scan_library` + `diff_library` — what you already own, matched by MusicBrainz id, ISRC, then
    normalised artist + title + duration.
@@ -108,6 +109,28 @@ whitespace, normalise `feat.`, set ALBUMARTIST, unify album spelling, propagate 
 numbers, FLAC beats lossy, move, prune) are listed in the skill; everything else waits for a decision.
 FLAC, MP3, M4A, Ogg and Opus are handled. The same planner runs from a shell as
 `uv run --project plugins/claude-music/servers/library claude-music-tidy analyse|apply [root]`.
+
+### Services
+
+`connect_service`, `service_status`, `list_remote_playlists`, `import_remote_playlist` and
+`disconnect_service` talk to streaming services directly. Everything stays local: tokens and cookies are
+0600 files under the plugin data dir (`auth/`), never in the repo or in `settings.json`.
+
+- **TIDAL** — the official API (`openapi.tidal.com/v2`), Authorization Code with PKCE, redirect to a
+  loopback listener. You need your own app: at [developer.tidal.com/dashboard](https://developer.tidal.com/dashboard)
+  create one, add the redirect URI `http://127.0.0.1:43117/callback` and the scopes `playlists.read`
+  and `user.read`, then put its client id in the plugin's `tidal_client_id` setting (`/plugin` →
+  claude-music → configure, or `CLAUDE_MUSIC_TIDAL_CLIENT_ID`). `connect_service("tidal")` opens the
+  login page; call it again after approving. Playlists arrive with ISRCs and durations. Another redirect
+  port: set `CLAUDE_MUSIC_TIDAL_REDIRECT_URI` to a matching `http://127.0.0.1:<port>/...`.
+- **Deezer** — public playlists by id or share URL, no login (`api.deezer.com`). ISRCs and durations
+  included. `list_remote_playlists("deezer", user=<user id or profile URL>)` lists someone's public
+  playlists. OAuth for private playlists is not implemented.
+- **YouTube Music** — through [ytmusicapi](https://github.com/sigma67/ytmusicapi), which is unofficial
+  and authenticates with request headers copied from a logged-in browser tab (`service_status` prints
+  the steps; `connect_service("youtube-music", headers_raw=...)` stores them). Titles, artists, albums and
+  durations only; MusicBrainz fills in the rest. It breaks when YouTube changes its pages: update
+  `ytmusicapi` (`uv sync` in `servers/library`) or reconnect.
 
 ### Spotify
 
@@ -189,6 +212,6 @@ claude plugin validate plugins/claude-music --strict
 `claude --plugin-dir plugins/claude-music`, then `/reload-plugins` after edits.
 
 Layout: `nicotine-plugin/mcp_bridge` (Nicotine+ plugin, stdlib only), `plugins/claude-music`
-(the Claude Code plugin: manifest, `.mcp.json`, `servers/nicotine_mcp.py`, `servers/library/`, the
-`playlist-sync` and `music-tidy` skills, agent, hook), `tests/`, `docs/ROADMAP.md`, `site/` (the static site, deployed to
+(the Claude Code plugin: manifest, `.mcp.json`, `servers/nicotine_mcp.py`, `servers/library/` with the
+service connectors under `connectors/`, the `playlist-sync` and `music-tidy` skills, agent, hook), `tests/`, `docs/ROADMAP.md`, `site/` (the static site, deployed to
 Vercel from that folder). Licence: GPL-3.0-or-later.

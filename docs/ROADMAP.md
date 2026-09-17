@@ -181,17 +181,22 @@ Keep every v1 method and response shape working; add fields only. Bump `PROTOCOL
   - README updated;
   - `install.sh` works from a clean checkout.
 
-**Phase 2 — service connectors**
+**Phase 2 — service connectors** — *done 2026-09-17 (v0.3.0)*
 - TIDAL (official API, PKCE, loopback redirect on 127.0.0.1), Deezer (public playlists by URL/ID; OAuth only if I ask), YouTube Music (`ytmusicapi`, browser-header auth file under `${CLAUDE_PLUGIN_DATA}`, 0600).
-- Common interface: `list_remote_playlists(service)`, `import_remote_playlist(service, id_or_url)`.
+- Common interface: `list_remote_playlists(service)`, `import_remote_playlist(service, id_or_url)`, plus `connect_service`, `service_status`, `disconnect_service`.
 - Tokens stored 0600 under `${CLAUDE_PLUGIN_DATA}/auth/`, never in the repo or in settings.json.
 - Recorded fixtures for tests; no live calls in CI.
+- Implementation notes (`servers/library/src/claude_music_library/connectors/`):
+  - TIDAL facts verified 2026-09-17 against the published OpenAPI spec: authorize `https://login.tidal.com/authorize`, token `https://auth.tidal.com/v1/oauth2/token` (form-encoded; PKCE public client, no secret), scopes `playlists.read user.read`, `GET /users/me` for the country code, `GET /playlists?filter[owners.id]=me`, `GET /playlists/{id}/relationships/items?include=items,items.artists,items.albums`, cursor paging via `links.next` (`page[cursor]`). The connector re-adds `include`/`countryCode` to `next` links because the server used to drop them. The redirect URI (`http://127.0.0.1:43117/callback` by default) must be registered on the user's own app; `tidal_client_id` is a plugin userConfig.
+  - The login is non-blocking: `connect_service("tidal")` starts a ten-minute loopback listener and returns the URL; the second call exchanges the code.
+  - Deezer: `GET /playlist/{id}` + `/playlist/{id}/tracks?index=&limit=100` following `next`; rows carry `isrc` and `duration` (seconds). Quota errors (`code` 4) back off.
+  - YouTube Music: `ytmusicapi>=1.8` is a dependency of the library server; the connector imports it lazily, reports its version, wraps every failure. `get_library_playlists(limit=None)` / `get_playlist(id, limit=None)`; `LM` is Liked Music.
 
 **Phase 3 — finishing**
 - Optional `beets` integration: detect `beet`, run `beet import` on completed album folders with MusicBrainz IDs as hints. Never move files without a dry-run summary first.
 - Download-completion monitor (experimental component) that polls the bridge and emits one line per finished item.
 - Optional Troi resolver if my library is MusicBrainz-tagged.
-- Marketplace polish and versioning.
+- Marketplace polish and versioning — *discoverability, topics, awesome-list PRs and the marketplace install route were done 2026-09-17 (v0.2.1); keep bumping both manifests on every release.*
 
 **Phase 4 — optional Spotify API connector (only if I explicitly ask)**
 - Own dev app, PKCE, `/me/playlists` and `/playlists/{id}/items` only, disabled by default. Before building it, summarise the policy clause above and get my decision on how (or whether) API-fetched data may be used.
