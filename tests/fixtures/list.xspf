@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<playlist version="1" xmlns="http://xspf.org/ns/0/">
+  <title>From XSPF</title>
+  <trackList>
+    <track><title>Song One</title><creator>Artist A</creator><album>Album A</album><duration>200000</duration>
+      <identifier>https://musicbrainz.org/recording/11111111-1111-1111-1111-111111111111</identifier></track>
+    <track><title>Track 1</title><creator>Band B</creator></track>
+    <track><creator>No Title</creator></track>
+  </trackList>
+</playlist>

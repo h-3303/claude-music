@@ -14,6 +14,12 @@
       "description": "Folder scanned for tracks you already have (default: ~/Music)",
       "default": "~/Music"
     },
+    "mb_contact": {
+      "type": "string",
+      "title": "MusicBrainz contact",
+      "description": "Email or URL sent in the User-Agent of MusicBrainz lookups, as their API terms ask",
+      "default": ""
+    },
     "bridge_socket": {
       "type": "string",
       "title": "Nicotine+ bridge socket",

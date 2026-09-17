@@ -312,6 +312,14 @@ class NicotineHarness:
             requested = getattr(core.downloads, "_requested_folders", None)
 
             if requested is not None:
+                # Cancel Nicotine+'s own folder-request timers before dropping the entries, otherwise a
+                # timer firing later dereferences a missing key inside core code.
+                for per_user in requested.values():
+                    for entry in per_user.values():
+                        if getattr(entry, "request_timer_id", None) is not None:
+                            self._events.cancel_scheduled(entry.request_timer_id)
+                            entry.request_timer_id = None
+
                 requested.clear()
 
             transfers = list(core.downloads.transfers.values())

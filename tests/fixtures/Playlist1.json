@@ -1,0 +1,25 @@
+{
+  "playlists": [
+    {
+      "name": "Road Trip",
+      "lastModifiedDate": "2026-08-30",
+      "items": [
+        {"track": {"trackName": "Song One", "artistName": "Artist A", "albumName": "Album A", "trackUri": "spotify:track:aaa1"}, "episode": null, "localTrack": null, "addedDate": "2026-01-01"},
+        {"track": {"trackName": "Song Two (feat. Guest)", "artistName": "Artist A", "albumName": "Album A", "trackUri": "spotify:track:aaa2"}, "episode": null, "localTrack": null, "addedDate": "2026-01-01"},
+        {"track": {"trackName": "Track 1", "artistName": "Band B", "albumName": "B Album", "trackUri": "spotify:track:bbb1"}, "episode": null, "localTrack": null, "addedDate": "2026-01-02"},
+        {"track": {"trackName": "Track 2", "artistName": "Band B", "albumName": "B Album", "trackUri": "spotify:track:bbb2"}, "episode": null, "localTrack": null, "addedDate": "2026-01-02"},
+        {"track": {"trackName": "Track 3", "artistName": "Band B", "albumName": "B Album", "trackUri": "spotify:track:bbb3"}, "episode": null, "localTrack": null, "addedDate": "2026-01-02"},
+        {"track": {"trackName": "Lonely Song - 2011 Remaster", "artistName": "Solo C", "albumName": "Alone", "trackUri": "spotify:track:ccc1"}, "episode": null, "localTrack": null, "addedDate": "2026-01-03"},
+        {"track": {"trackName": "Ghost Track", "artistName": "Nobody", "albumName": "Nothing", "trackUri": "spotify:track:ddd1"}, "episode": null, "localTrack": null, "addedDate": "2026-01-04"},
+        {"track": null, "episode": {"episodeName": "A podcast", "showName": "Talk"}, "localTrack": null, "addedDate": "2026-01-05"}
+      ]
+    },
+    {
+      "name": "Second List",
+      "lastModifiedDate": "2026-08-30",
+      "items": [
+        {"track": {"trackName": "Only Song", "artistName": "Someone", "albumName": "Somewhere", "trackUri": "spotify:track:eee1"}, "episode": null, "localTrack": null, "addedDate": "2026-01-01"}
+      ]
+    }
+  ]
+}

@@ -120,3 +120,27 @@ def test_download_folder_still_downloads(bridge):
     bridge.send_folder_contents("peer1", ALBUM, {ALBUM: [(1, "01.flac", 1, "flac", bridge.make_attrs())]})
     assert [t.virtual_path for t in bridge.transfers()] == [f"{ALBUM}\\01.flac"]
     assert bridge.rpc("folder_contents_result", username="peer1", folder_path=ALBUM)["status"] == "unknown"
+
+
+def test_download_file_by_path(bridge):
+    attrs = {"bitrate": None, "duration": 200, "vbr": None, "sample_rate": 44100, "bit_depth": 16}
+    result = bridge.rpc("download_file", username="peer1", path=f"{ALBUM}\\01 - Track 1.flac", size=123, attrs=attrs)
+    (queued,) = result["queued"]
+    assert queued["path"] == f"{ALBUM}\\01 - Track 1.flac"
+
+    (transfer,) = bridge.transfers()
+    assert transfer.username == "peer1" and transfer.size == 123
+    assert transfer.folder_path.endswith("Album (2001)")
+    listed = bridge.rpc("list_downloads")["downloads"][0]
+    assert listed["download_id"] == queued["download_id"]
+
+    read_attrs = type(bridge.plugin).api_status.__globals__["_read_attrs"]
+    assert read_attrs(transfer.file_attributes) == attrs
+
+    flat = bridge.rpc("download_file", username="peer1", path=f"{ALBUM}\\02.flac", keep_folder_structure=False)
+    assert len(flat["queued"]) == 1
+    assert len(bridge.transfers()) == 2
+
+    bridge.set_plugin_setting("allow_downloads", False)
+    with pytest.raises(BridgeError, match="downloads are disabled"):
+        bridge.rpc("download_file", username="peer1", path="x\\y.flac")

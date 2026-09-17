@@ -14,6 +14,7 @@
         "UV_PROJECT_ENVIRONMENT": "${CLAUDE_PLUGIN_DATA}/venv",
         "CLAUDE_MUSIC_DATA": "${CLAUDE_PLUGIN_DATA}",
         "CLAUDE_MUSIC_DIR": "${user_config.music_dir}",
+        "CLAUDE_MUSIC_CONTACT": "${user_config.mb_contact}",
         "NICOTINE_MCP_SOCKET": "${user_config.bridge_socket}"
       }
     }

@@ -1,0 +1,7 @@
+#EXTM3U
+#PLAYLIST:From M3U
+#EXTINF:200,Artist A - Song One
+Artist A/Album A/01 - Song One.flac
+#EXTINF:-1,Solo C - Lonely Song
+/nonexistent/Lonely Song.mp3
+no-extinf.mp3

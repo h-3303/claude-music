@@ -57,6 +57,19 @@ def _read_attrs(attrs):
     return {key: getattr(attrs, name, None) for key, name in ATTR_NAMES_34.items()}
 
 
+def _build_attrs(values):
+    """Build this Nicotine+ version's file attributes from {bitrate, duration, vbr, sample_rate, bit_depth}."""
+    if not values:
+        return None
+
+    try:
+        from pynicotine.slskmessages import FileAttributes  # Nicotine+ 3.4+
+    except ImportError:
+        return {code: values[key] for key, code in ATTR_CODES.items() if values.get(key) is not None}
+
+    return FileAttributes(**{name: values.get(key) for key, name in ATTR_NAMES_34.items()})
+
+
 def _extension(path):
     basename = path.rpartition("\\")[2]
     return basename.rpartition(".")[2].lower() if "." in basename else ""
@@ -678,6 +691,26 @@ class Plugin(BasePlugin):
 
         return {"queued": queued, "errors": errors}
 
+    def api_download_file(self, username, path, size=0, attrs=None, keep_folder_structure=True):
+        """Queue one file by user and virtual path (protocol v2); for results harvested from a search that
+        has since been stopped. attrs: optional {bitrate, duration, vbr, sample_rate, bit_depth}."""
+        self._require_downloads_allowed()
+
+        if not username or not path:
+            raise ValueError("username and path are required")
+
+        path = path.replace("/", "\\")
+        downloads = self.core.downloads
+        folder = None
+
+        if keep_folder_structure:
+            parent = path.rpartition("\\")[0]
+            folder = downloads.get_folder_destination(username, parent) if parent else None
+
+        downloads.enqueue_download(username, path, folder_path=folder, size=int(size or 0),
+                                   file_attributes=_build_attrs(attrs))
+        return {"queued": [{"download_id": _download_id(username, path), "user": username, "path": path}], "errors": []}
+
     def api_download_folder(self, username, folder_path, include_subfolders=False):
         self._require_downloads_allowed()
 
@@ -729,6 +762,7 @@ class Plugin(BasePlugin):
 
             if stale is not None and getattr(stale, "request_timer_id", None) is not None:
                 events.cancel_scheduled(stale.request_timer_id)
+                stale.request_timer_id = None
 
             self._listing_token = (self._listing_token % UINT32_LIMIT) + 1
             self.core.send_message_to_peer(username, FolderContentsRequest(folder_path, self._listing_token))
@@ -824,6 +858,7 @@ class Plugin(BasePlugin):
         "search_results": api_search_results,
         "stop_search": api_stop_search,
         "download_results": api_download_results,
+        "download_file": api_download_file,
         "download_folder": api_download_folder,
         "folder_contents": api_folder_contents,
         "folder_contents_result": api_folder_contents_result,

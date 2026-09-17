@@ -13,16 +13,17 @@ from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
 SERVER = Path(__file__).resolve().parent.parent / "plugins" / "claude-music" / "servers" / "nicotine_mcp.py"
+LIBRARY_SERVER = ["-m", "claude_music_library.server"]
 ALBUM = "@@music\\Test Artist\\Album (2001)"
 
 pytestmark = pytest.mark.anyio
 
 
 @asynccontextmanager
-async def mcp_session(socket_path):
+async def mcp_session(socket_path, args=None, env=None):
     params = StdioServerParameters(
-        command=sys.executable, args=[str(SERVER)],
-        env={**os.environ, "NICOTINE_MCP_SOCKET": socket_path},
+        command=sys.executable, args=args or [str(SERVER)],
+        env={**os.environ, "NICOTINE_MCP_SOCKET": socket_path, **(env or {})},
     )
 
     async with stdio_client(params) as (read, write):
@@ -214,3 +215,29 @@ async def test_rate_limit_error_is_explained(bridge):
         bridge.set_plugin_setting("search_rate_limit", 34)
         bridge.set_plugin_setting("search_rate_window", 220)
         bridge.on_main(reset_bucket)
+
+
+async def test_library_server_over_stdio(bridge, tmp_path):
+    env = {"CLAUDE_MUSIC_DATA": str(tmp_path / "data"), "CLAUDE_MUSIC_DIR": str(tmp_path / "Music")}
+
+    async with mcp_session(bridge.socket_path, args=LIBRARY_SERVER, env=env) as session:
+        tools = {tool.name for tool in (await session.list_tools()).tools}
+        assert {"import_playlist_file", "resolve_playlist", "scan_library", "diff_library", "match_playlist",
+                "review_candidates", "approve", "queue_approved", "sync_downloads", "write_m3u", "playlist_status",
+                "list_playlists", "library_status"} <= tools
+
+        status = payload(await session.call_tool("library_status", {}))
+        assert status["bridge"]["reachable"] is True and status["bridge"]["protocol"] == 2
+        assert status["schema_version"] == 1 and status["data_dir"] == str(tmp_path / "data")
+
+        imported = payload(await session.call_tool("import_playlist_file", {
+            "path": str(Path(__file__).parent / "fixtures" / "exportify.csv"),
+        }))
+        assert imported["imported"][0]["tracks"] == 2
+        listed = payload(await session.call_tool("list_playlists", {}))
+        assert listed["playlists"][0]["counts"] == {"pending": 2}
+
+        text = error_text(await session.call_tool("diff_library", {"playlist_id": 1}))
+        assert "library index is empty" in text
+        text = error_text(await session.call_tool("import_playlist_file", {"path": str(tmp_path / "missing.csv")}))
+        assert "does not exist" in text

@@ -1,0 +1,3 @@
+Track URI,Track Name,Album Name,Artist Name(s),Release Date,Duration (ms),Popularity,Explicit,Added By,Added At,ISRC
+spotify:track:aaa1,Song One,Album A,Artist A,2001-01-01,200000,50,false,spotify:user:x,2026-01-01T00:00:00Z,USAAA0100001
+spotify:track:ccc1,Lonely Song - 2011 Remaster,Alone,"Solo C, Guest",2011-01-01,185000,40,false,spotify:user:x,2026-01-01T00:00:00Z,GBCCC1100001
