@@ -50,6 +50,24 @@ For Claude Desktop or any other MCP client, register the command `uv run --scrip
 - **Access control:** the socket file is `0600`, and the plugin also rejects any peer whose UID (from `SO_PEERCRED`) doesn't match its own. There is no TCP listener, so browsers and other local users can't reach it.
 - **Stability:** all requests are run on Nicotine+'s main loop. Errors are caught before they reach Nicotine+'s event bus, because an uncaught exception in a main-thread callback makes Nicotine+ quit.
 
+## Development
+
+Tests run a headless Nicotine+ core in-process with fake peers, load the bridge through Nicotine+'s
+real plugin loader, and drive the MCP server over stdio. Nothing touches the network or the real
+Soulseek network. The Nicotine+ source is cloned once (needs the network the first time) into
+`~/.cache/claude-music/nicotine-plus/<ref>`.
+
+```bash
+uv sync                                   # dev deps: pytest, mcp
+uv run pytest                             # against Nicotine+ 3.3.10 (default)
+NICOTINE_PLUS_REF=master uv run pytest    # against current Nicotine+ master
+tests/run_matrix.sh                       # both, one process per version
+NICOTINE_PLUS_SRC=/usr/lib/python3.14/site-packages uv run pytest   # the installed package
+```
+
+`NICOTINE_PLUS_OFFLINE=1` forbids cloning (tests skip if the ref is not cached);
+`NICOTINE_PLUS_UPDATE=1` pulls the latest commit for branch refs.
+
 ## Notes
 
 - **Search results:** they trickle in from peers for a minute or more. Call `get_search_results` again for a fuller picture.

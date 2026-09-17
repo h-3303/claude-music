@@ -1,0 +1,25 @@
+# Development tooling for the repository (tests only; nothing here is installed by install.sh).
+[project]
+name = "claude-music-dev"
+version = "0.0.0"
+description = "Test tooling for the Nicotine+ MCP bridge and servers"
+requires-python = ">=3.11"
+license = "GPL-3.0-or-later"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-timeout>=2.3",
+    "anyio>=4",
+    "mcp>=2.2,<3",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["tests"]
+timeout = 120
+addopts = "-ra"
