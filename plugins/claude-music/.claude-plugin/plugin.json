@@ -1,19 +1,28 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "claude-music",
-  "version": "0.2.0",
+  "displayName": "claude-music",
+  "version": "0.2.1",
   "description": "Import streaming playlists, match them against your local library, fetch the missing tracks through your running Nicotine+ (Soulseek) client, and tidy the library afterwards: tags, duplicates, Artist/Album/NN - Title.",
   "author": {
-    "name": "h-3303"
+    "name": "h-3303",
+    "url": "https://github.com/h-3303"
   },
+  "homepage": "https://claude-music-liard.vercel.app",
+  "repository": "https://github.com/h-3303/claude-music",
   "license": "GPL-3.0-or-later",
   "keywords": [
     "music",
     "soulseek",
-    "nicotine",
+    "nicotine-plus",
     "playlists",
+    "spotify",
     "musicbrainz",
+    "flac",
     "tags",
-    "library"
+    "music-library",
+    "mcp",
+    "claude-code"
   ],
   "userConfig": {
     "music_dir": {

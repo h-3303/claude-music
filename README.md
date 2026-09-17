@@ -1,6 +1,7 @@
 # claude-music
 
-**Site:** https://claude-music-liard.vercel.app · **Repo:** https://github.com/h-3303/claude-music
+**Site:** https://claude-music-liard.vercel.app · **Repo:** https://github.com/h-3303/claude-music ·
+**Install:** `/plugin marketplace add h-3303/claude-music` then `/plugin install claude-music@claude-music`
 
 A Claude Code plugin that gets a streaming playlist onto disk: import the playlist file, canonicalise
 it against MusicBrainz, see what you already have, fetch the rest from Soulseek through your own running
@@ -21,8 +22,26 @@ Tested against Nicotine+ 3.3.10, 3.3.11 and master (3.4.0.dev2) with MCP Python 
 
 ## Install
 
+Two halves: the Claude Code plugin, and a small bridge plugin that runs inside Nicotine+. Any distro with
+Nicotine+ 3.3 or newer and [uv](https://docs.astral.sh/uv/) works.
+
+**1. The plugin, from inside Claude Code:**
+
+```
+/plugin marketplace add h-3303/claude-music
+/plugin install claude-music@claude-music
+```
+
+**2. The Nicotine+ bridge, from a shell** (the marketplace add above cloned the repository):
+
 ```bash
-sudo pacman -S --needed nicotine+ uv          # Arch; any distro with Nicotine+ 3.3+ and uv works
+sudo pacman -S --needed nicotine+ uv          # Arch; use your distro's packages elsewhere
+bash ~/.claude/plugins/marketplaces/claude-music/install.sh
+```
+
+Or do both at once from a checkout of your own:
+
+```bash
 git clone https://github.com/h-3303/claude-music ~/src/claude-music && cd ~/src/claude-music
 ./install.sh
 ```
@@ -31,14 +50,18 @@ The installer:
 
 - copies `nicotine-plugin/mcp_bridge` into Nicotine+'s plugin folder (native or Flatpak);
 - installs the standalone `nicotine-mcp` server to `~/.local/bin` for Claude Desktop and other MCP clients;
-- adds this checkout as a local Claude Code marketplace and installs the `claude-music` plugin from it
-  (after a `git pull`, run `./install.sh` again to pick up changes);
+- registers the repository as a Claude Code marketplace if it is not one already, and installs or updates
+  the `claude-music` plugin from it;
 - builds the library server's venv in the plugin's persistent data directory.
 
 Then: Nicotine+ → Preferences → Plugins → enable plugins → tick **MCP Bridge** (re-tick it after
 upgrading: the plugin is only reloaded when toggled). The Nicotine+ log shows
 `MCP bridge listening on …`. In Claude Code, `/plugin` should list `claude-music` and every session
-starts with a one-line health check of the bridge and the venv.
+starts with a one-line health check of the bridge and the venv; if the bridge is missing, the check
+says which command to run.
+
+To update later: `/plugin marketplace update claude-music` then `/plugin update claude-music@claude-music`
+for the Claude side, and `install.sh` again for the Nicotine+ side (then re-tick the plugin).
 
 Plugin settings (`/plugin` → configure): music library folder (default `~/Music`), a MusicBrainz
 contact (email or URL, sent in the User-Agent as their API terms ask), and the bridge socket path if
@@ -109,7 +132,8 @@ browse a folder without downloading, queue files or folders, manage downloads.
 | `cancel_downloads` / `retry_downloads` / `clear_downloads` | Act on downloads by id. `clear_downloads` never deletes files from disk |
 
 For Claude Desktop or any other MCP client, register `uv run --script ~/.local/bin/nicotine-mcp` as a
-stdio server.
+stdio server. The bridge and this server are also published on their own, without the playlist and
+library tooling, as [nicotine-mcp](https://github.com/h-3303/nicotine-mcp).
 
 ## Nicotine+ plugin settings (Preferences → Plugins → MCP Bridge)
 

@@ -23,7 +23,9 @@ install -m 755 plugins/claude-music/servers/nicotine_mcp.py ~/.local/bin/nicotin
 uv sync --script ~/.local/bin/nicotine-mcp   # pre-fetch the MCP SDK so first launch is instant
 echo "Standalone server installed as ~/.local/bin/nicotine-mcp"
 
-# 3. Claude Code plugin (local marketplace, loaded in place from this checkout)
+# 3. Claude Code plugin. A fresh checkout is registered as a local marketplace; if the
+#    marketplace was added from GitHub (/plugin marketplace add h-3303/claude-music) it is
+#    refreshed instead and the installed plugin updated from it.
 if command -v claude >/dev/null; then
   # The plugin ships its own "nicotine" server; drop the hand-registered one from earlier versions.
   claude mcp remove --scope user nicotine >/dev/null 2>&1 || true
@@ -41,7 +43,7 @@ if command -v claude >/dev/null; then
   DATA_DIR=~/.claude/plugins/data/claude-music@claude-music
   mkdir -p "$DATA_DIR"
   UV_PROJECT_ENVIRONMENT="$DATA_DIR/venv" uv sync --project plugins/claude-music/servers/library >/dev/null
-  echo "Claude Code plugin 'claude-music' installed from $REPO"
+  echo "Claude Code plugin 'claude-music' installed ($(claude plugin list 2>/dev/null | grep -m1 -o 'claude-music@claude-music[^ ]*' || echo "from $REPO"))"
 else
   echo "Claude Code not found; for other MCP clients register: uv run --script $HOME/.local/bin/nicotine-mcp"
 fi

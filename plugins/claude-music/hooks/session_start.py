@@ -30,6 +30,16 @@ def bridge_socket():
     return next((c for c in candidates if os.path.exists(c)), candidates[0])
 
 
+def bridge_plugin_installed():
+    home = os.path.expanduser("~")
+    data_home = os.environ.get("XDG_DATA_HOME") or os.path.join(home, ".local", "share")
+    candidates = [
+        os.path.join(data_home, "nicotine", "plugins", "mcp_bridge"),
+        os.path.join(home, ".var", "app", "org.nicotine_plus.Nicotine", "data", "nicotine", "plugins", "mcp_bridge"),
+    ]
+    return any(os.path.isdir(c) for c in candidates)
+
+
 def check_bridge():
     path = bridge_socket()
 
@@ -48,7 +58,16 @@ def check_bridge():
 
                 data += chunk
     except OSError as error:
-        return f"Nicotine+ bridge NOT reachable at {path} ({error.strerror or error}). Start Nicotine+ and enable the MCP Bridge plugin before playlist sync."
+        hint = "Start Nicotine+ and enable the MCP Bridge plugin before playlist sync."
+
+        if not bridge_plugin_installed():
+            hint = (
+                "The MCP Bridge plugin is not in Nicotine+'s plugin folder yet: run install.sh from the repository "
+                "(after a marketplace install it is at ~/.claude/plugins/marketplaces/claude-music/install.sh), "
+                "then tick MCP Bridge in Nicotine+ -> Preferences -> Plugins."
+            )
+
+        return f"Nicotine+ bridge NOT reachable at {path} ({error.strerror or error}). {hint}"
 
     try:
         response = json.loads(data.split(b"\n", 1)[0])

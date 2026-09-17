@@ -3,10 +3,43 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>claude-music</title>
-<meta name="description" content="A Claude Code plugin that gets a streaming playlist onto disk: MusicBrainz, your local library, and the rest from Soulseek through your own Nicotine+. Then tidies the library: tags, duplicates, Artist/Album/NN - Title. Nothing is downloaded or deleted without your yes.">
-<meta property="og:title" content="claude-music">
-<meta property="og:description" content="Playlists · MusicBrainz · Soulseek · your own Nicotine+ · a tidy library. Everything runs locally.">
+<title>claude-music · a Claude Code plugin for playlists, Soulseek and a tidy library</title>
+<meta name="description" content="A Claude Code plugin that gets a streaming playlist onto disk: MusicBrainz, your local library, and the rest from Soulseek through your own Nicotine+. Then tidies the library: tags, duplicates, Artist/Album/NN - Title. Nothing is downloaded or deleted without your yes. Install: /plugin marketplace add h-3303/claude-music">
+<link rel="canonical" href="https://claude-music-liard.vercel.app/">
+<link rel="alternate" type="text/plain" href="https://claude-music-liard.vercel.app/llms.txt" title="llms.txt">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="claude-music">
+<meta property="og:url" content="https://claude-music-liard.vercel.app/">
+<meta property="og:title" content="claude-music · a Claude Code plugin for playlists, Soulseek and a tidy library">
+<meta property="og:description" content="Playlists · MusicBrainz · Soulseek · your own Nicotine+ · a tidy library. Everything runs locally. Two MCP servers, two skills, one agent.">
+<meta property="og:image" content="https://claude-music-liard.vercel.app/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The claude-music page: masthead, headline, the steps from import to tidy.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="claude-music · a Claude Code plugin for playlists, Soulseek and a tidy library">
+<meta name="twitter:description" content="Playlists · MusicBrainz · Soulseek · your own Nicotine+ · a tidy library. Everything runs locally.">
+<meta name="twitter:image" content="https://claude-music-liard.vercel.app/og.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "claude-music",
+  "url": "https://claude-music-liard.vercel.app/",
+  "description": "A Claude Code plugin: import a streaming playlist export, canonicalise it against MusicBrainz, find what the local library already has, fetch the rest from Soulseek through the user's own Nicotine+ client with their approval, write an M3U, then tidy the library.",
+  "applicationCategory": "DeveloperApplication",
+  "applicationSubCategory": "Claude Code plugin",
+  "operatingSystem": "Linux",
+  "softwareVersion": "0.2.1",
+  "license": "https://www.gnu.org/licenses/gpl-3.0.html",
+  "isAccessibleForFree": true,
+  "codeRepository": "https://github.com/h-3303/claude-music",
+  "installUrl": "https://github.com/h-3303/claude-music#install",
+  "softwareRequirements": "Claude Code, Nicotine+ 3.3 or newer, uv",
+  "keywords": "claude-code, claude-code-plugin, mcp, mcp-server, soulseek, nicotine-plus, musicbrainz, playlists, spotify, flac, music-library",
+  "author": { "@type": "Person", "name": "h-3303", "url": "https://github.com/h-3303" }
+}
+</script>
 <link rel="stylesheet" href="dtw.css">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23141412'/%3E%3Ctext x='16' y='24' text-anchor='middle' font-family='serif' font-weight='700' font-size='22' fill='%23e8e5dc'%3Ec%3C/text%3E%3C/svg%3E">
 <style>
@@ -107,13 +140,19 @@
 
     <div class="dtw-pasted-box rot-3">
       <div class="dtw-bar-heading dtw-bar-heading--typewriter" style="margin: -4px 0 10px">INSTALL</div>
-<pre class="dtw-typewriter pre">sudo pacman -S --needed nicotine+ uv
-git clone https://github.com/h-3303/claude-music ~/src/claude-music
-cd ~/src/claude-music &amp;&amp; ./install.sh</pre>
+<pre class="dtw-typewriter pre"># in Claude Code
+/plugin marketplace add h-3303/claude-music
+/plugin install claude-music@claude-music
+
+# in a shell: the bridge that runs inside Nicotine+
+sudo pacman -S --needed nicotine+ uv
+bash ~/.claude/plugins/marketplaces/claude-music/install.sh</pre>
       <p class="dtw-typewriter dtw-typewriter--muted" style="font-size: 11px; margin-top: 10px">
-        Copies the bridge into Nicotine+'s plugin folder, adds this checkout as a local marketplace, installs the
-        plugin and builds its venv in the plugin data dir. Then tick <em>MCP Bridge</em> in Nicotine+ → Preferences →
-        Plugins, and say <code>/playlist-sync</code> in Claude Code. Any distro with Nicotine+ 3.3 or newer and uv works.
+        The marketplace add clones the repository; the script copies the bridge into Nicotine+'s plugin folder and
+        builds the library server's venv. Then tick <em>MCP Bridge</em> in Nicotine+ → Preferences → Plugins, and say
+        <code>/playlist-sync</code> in Claude Code. Any distro with Nicotine+ 3.3 or newer and uv works; a
+        <code>git clone</code> and <code>./install.sh</code> does both halves at once. Always-on context cost:
+        about 320 tokens a session.
       </p>
     </div>
 
@@ -192,7 +231,7 @@ cd ~/src/claude-music &amp;&amp; ./install.sh</pre>
     </div>
 
     <p class="dtw-typewriter dtw-typewriter--on-black dtw-typewriter--tracked dtw-typewriter--caps" style="font-size: 10px; margin-top: 30px; text-align: center">
-      <a href="https://github.com/h-3303/claude-music">github.com/h-3303/claude-music</a> · GPL-3.0-or-later
+      <a href="https://github.com/h-3303/claude-music">github.com/h-3303/claude-music</a> · <a href="llms.txt">llms.txt</a> · GPL-3.0-or-later
     </p>
   </div>
 

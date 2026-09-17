@@ -1,15 +1,36 @@
 {
   "name": "claude-music",
-  "description": "Local marketplace for the claude-music plugin (Nicotine+ / Soulseek playlist sync and library tidying)",
+  "description": "Playlist sync and library tidying for Claude Code through your own Nicotine+ (Soulseek) client and MusicBrainz. Everything runs locally.",
   "owner": {
-    "name": "h-3303"
+    "name": "h-3303",
+    "url": "https://github.com/h-3303"
+  },
+  "metadata": {
+    "description": "Add with: /plugin marketplace add h-3303/claude-music"
   },
   "plugins": [
     {
       "name": "claude-music",
-      "description": "Import streaming playlists, match them against your local library, fetch the missing tracks through Nicotine+, and tidy the library afterwards.",
+      "description": "Import a streaming playlist export, match it against your local library, fetch the missing tracks through Nicotine+ (Soulseek) with your approval, write an M3U, then tidy the library: tags, duplicates, Artist/Album/NN - Title.",
+      "version": "0.2.1",
       "source": "./plugins/claude-music",
-      "category": "productivity"
+      "homepage": "https://claude-music-liard.vercel.app",
+      "repository": "https://github.com/h-3303/claude-music",
+      "license": "GPL-3.0-or-later",
+      "author": {
+        "name": "h-3303"
+      },
+      "category": "productivity",
+      "tags": [
+        "music",
+        "soulseek",
+        "nicotine-plus",
+        "playlists",
+        "spotify",
+        "musicbrainz",
+        "flac",
+        "mcp"
+      ]
     }
   ]
 }
