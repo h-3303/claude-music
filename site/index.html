@@ -26,7 +26,7 @@
   "@type": "SoftwareApplication",
   "name": "claude-music",
   "url": "https://claude-music-liard.vercel.app/",
-  "description": "A Claude Code plugin: import a streaming playlist export, canonicalise it against MusicBrainz, find what the local library already has, fetch the rest from Soulseek through the user's own Nicotine+ client with their approval, write an M3U, then tidy the library.",
+  "description": "A Claude Code plugin: import a playlist from TIDAL, Deezer, YouTube Music or an export file, canonicalise it against MusicBrainz, find what the local library already has, fetch the rest from Soulseek through the user's own Nicotine+ client with their approval, write an M3U, then tidy the library.",
   "applicationCategory": "DeveloperApplication",
   "applicationSubCategory": "Claude Code plugin",
   "operatingSystem": "Linux",
@@ -89,7 +89,7 @@
     </h1>
 
     <p class="dtw-body" style="font-size: 13.5px; max-width: 600px">
-      <span class="dtw-body__dropcap">A</span> Claude Code plugin that takes a playlist you exported from a streaming service, works out
+      <span class="dtw-body__dropcap">A</span> Claude Code plugin that takes a playlist from TIDAL, Deezer, YouTube Music or an export file, works out
       which of its tracks you already own, canonicalises the rest against MusicBrainz, and fetches what is missing
       from Soulseek through the Nicotine+ client already running on your machine. One Soulseek identity, your shares
       intact, an M3U in the original order at the end. Nothing is queued until you have seen the count, the size and
@@ -102,7 +102,7 @@
       <div>
         <div class="dtw-bar-heading dtw-bar-heading--typewriter rot-1">HOW IT RUNS</div>
         <div class="dtw-x-list steps" style="margin-top: 14px">
-          <div class="dtw-x-list__item"><span class="dtw-x-list__x">X</span><span><b>IMPORT.</b> Spotify data export, Exportify CSV, plain CSV, M3U, JSPF or XSPF. Each playlist becomes a JSPF file with MusicBrainz ids.</span></div>
+          <div class="dtw-x-list__item"><span class="dtw-x-list__x">X</span><span><b>IMPORT.</b> A TIDAL playlist through the official API with your own app, a public Deezer playlist by link, your YouTube Music library, or a file: Spotify data export, Exportify CSV, plain CSV, M3U, JSPF, XSPF. Each playlist becomes a JSPF file with MusicBrainz ids.</span></div>
           <div class="dtw-x-list__item"><span class="dtw-x-list__x">X</span><span><b>RESOLVE.</b> ISRC first, then artist, title and duration against MusicBrainz. One request a second, cached, a proper User-Agent.</span></div>
           <div class="dtw-x-list__item"><span class="dtw-x-list__x">X</span><span><b>DIFF.</b> Your library is indexed with mutagen. Matches by MusicBrainz id, then ISRC, then normalised text within a duration tolerance.</span></div>
           <div class="dtw-x-list__item"><span class="dtw-x-list__x">X</span><span><b>MATCH.</b> A background job searches Soulseek per track, scores every result, keeps the best few. Three or more missing tracks of one release become an album search, folder inspected, track count checked.</span></div>
@@ -159,7 +159,7 @@ bash ~/.claude/plugins/marketplaces/claude-music/install.sh</pre>
     <div>
       <div class="dtw-bar-heading dtw-bar-heading--serif rot-4">The tools, in the order you use them.</div>
       <ul class="tools" style="margin-top: 14px">
-        <li><code>import_playlist_file</code><span>file in, playlist_id out; a Spotify export with several lists imports them all</span></li>
+        <li><code>import_playlist_file · import_remote_playlist</code><span>file or service link in, playlist_id out; <code>connect_service</code> logs in to TIDAL (PKCE, loopback) or stores YouTube Music headers, 0600, on your disk</span></li>
         <li><code>resolve_playlist</code><span>MusicBrainz ids, release track counts, durations the export did not carry</span></li>
         <li><code>scan_library · diff_library</code><span>what you already own, and how it was matched</span></li>
         <li><code>match_playlist</code><span>the background job; poll <code>playlist_status</code>, which shows rate-limit waits</span></li>
@@ -218,14 +218,14 @@ bash ~/.claude/plugins/marketplaces/claude-music/install.sh</pre>
         raise the search rate limit, or suggest it, without asking. They will not dump a whole tracklist into the
         conversation. They will not touch the Spotify API: their terms forbid feeding platform data to a model, so the data
         export is the route. They will not delete a file the plan did not list, nor write a tag without a backup of the
-        old one. They will not send anything anywhere but MusicBrainz and your own Nicotine+.
+        old one. They will not send anything anywhere but MusicBrainz, your own Nicotine+, and a streaming service you have connected yourself.
       </p>
       <div class="dtw-reversed-panel__attr">— playlist-sync and music-tidy, guardrails sections</div>
     </div>
 
     <div class="row" style="margin-top: 26px; flex-wrap: wrap; align-items: center">
       <div class="dtw-torn-scrap dtw-torn-scrap--v1 dtw-xerox" style="transform: rotate(-0.9deg); max-width: 300px">
-        <p class="dtw-typewriter" style="font-size: 11px">Tested against Nicotine+ 3.3.10, 3.3.11 and master. 111 tests: a headless Nicotine+ core in-process, fake Soulseek peers, both MCP servers over stdio, a synthetic run from export to M3U, a synthetic library tidied end to end. Nothing touches the network.</p>
+        <p class="dtw-typewriter" style="font-size: 11px">Tested against Nicotine+ 3.3.10, 3.3.11 and master. 135 tests: a headless Nicotine+ core in-process, fake Soulseek peers, both MCP servers over stdio, a synthetic run from export to M3U, a synthetic library tidied end to end, the service connectors on recorded fixtures. Nothing touches the network.</p>
       </div>
       <div class="dtw-pasted-slip dtw-pasted-slip--hand" style="transform: rotate(-1.6deg); font-size: 30px">everything stays on your machine</div>
     </div>
